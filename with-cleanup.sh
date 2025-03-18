@@ -16,7 +16,7 @@ echo "🚀 Запуск контейнера..."
 docker run -d --name astria-bot \
   -p 8080:8080 \
   -e WEBHOOK_URL=https://astria-portraits-telegram-bot-production.up.railway.app \
-  -e TELEGRAM_BOT_TOKEN=7986462046:AAHi8e0KLkcAicE_yzjzAHJT5pkg2Edcjv0 \
+  -e TELEGRAM_BOT_TOKEN=7841199395:AAFm779B_P_RaeNSjd0H7v-SNWBD0QMi2Z4 \
   -e WEBHOOK_SECRET=verySecretWebhookKey123 \
   -e PORT=8080 \
   -e NEXT_PUBLIC_SUPABASE_URL=https://txhyoqrbcianrpwsivac.supabase.co \
