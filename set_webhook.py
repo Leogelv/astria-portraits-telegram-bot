@@ -12,6 +12,11 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
+# Выводим значения для отладки
+print(f"TELEGRAM_BOT_TOKEN: {TELEGRAM_BOT_TOKEN}")
+print(f"WEBHOOK_URL: {WEBHOOK_URL}")
+print(f"WEBHOOK_SECRET: {WEBHOOK_SECRET}")
+
 # Проверяем наличие переменных
 if not TELEGRAM_BOT_TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN не найден в переменных окружения")
