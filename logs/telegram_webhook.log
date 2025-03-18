@@ -1,0 +1,18 @@
+2025-03-18 18:45:45.799 | INFO     | __main__:main:17 - Запуск телеграм-бота Astria AI
+2025-03-18 18:45:45.836 | INFO     | database:__init__:15 - Инициализирован клиент Supabase
+2025-03-18 18:45:45.836 | INFO     | api_client:__init__:30 - Инициализирован API клиент с базовым URL: https://headshots-astria.vercel.app
+2025-03-18 18:45:45.836 | INFO     | state_manager:__init__:30 - Инициализирован менеджер состояний
+2025-03-18 18:45:45.837 | INFO     | bot:__init__:76 - Инициализация бота Astria AI
+2025-03-18 18:45:45.837 | INFO     | supabase_logger:__init__:15 - Инициализирован логгер Supabase
+2025-03-18 18:45:45.837 | INFO     | bot:__init__:80 - Инициализирован Supabase логгер
+2025-03-18 18:45:45.847 | ERROR    | __main__:main:26 - Ошибка при запуске бота: type object 'Document' has no attribute 'MediaGroupId'
+2025-03-18 18:45:45.847 | INFO     | __main__:main:28 - Завершение работы бота
+2025-03-18 18:46:18.022 | INFO     | __main__:main:17 - Запуск телеграм-бота Astria AI
+2025-03-18 18:46:18.070 | INFO     | database:__init__:15 - Инициализирован клиент Supabase
+2025-03-18 18:46:18.070 | INFO     | api_client:__init__:30 - Инициализирован API клиент с базовым URL: https://headshots-astria.vercel.app
+2025-03-18 18:46:18.070 | INFO     | state_manager:__init__:30 - Инициализирован менеджер состояний
+2025-03-18 18:46:18.070 | INFO     | bot:__init__:76 - Инициализация бота Astria AI
+2025-03-18 18:46:18.070 | INFO     | supabase_logger:__init__:15 - Инициализирован логгер Supabase
+2025-03-18 18:46:18.071 | INFO     | bot:__init__:80 - Инициализирован Supabase логгер
+2025-03-18 18:46:18.081 | ERROR    | __main__:main:26 - Ошибка при запуске бота: 'function' object has no attribute 'data_filter'
+2025-03-18 18:46:18.081 | INFO     | __main__:main:28 - Завершение работы бота
