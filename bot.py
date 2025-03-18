@@ -1123,12 +1123,16 @@ class AstriaBot:
         """Настройка вебхука для бота"""
         logger.info(f"Настройка вебхука для бота: {WEBHOOK_URL}")
         
+        # Получаем порт из переменных окружения или используем порт по умолчанию
+        port = int(os.environ.get("PORT", 8443))
+        logger.info(f"Используемый порт: {port}")
+        
         # Настраиваем вебхук
         application.run_webhook(
             listen="0.0.0.0",
-            port=int(os.environ.get("PORT", 8443)),
+            port=port,
             url_path=TELEGRAM_BOT_TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/webhook",
+            webhook_url=f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}",
             secret_token=WEBHOOK_SECRET
         )
         

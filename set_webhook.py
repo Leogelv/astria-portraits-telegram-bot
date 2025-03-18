@@ -25,8 +25,8 @@ if not WEBHOOK_SECRET:
     logger.error("WEBHOOK_SECRET не найден в переменных окружения")
     exit(1)
 
-# Формируем URL для установки вебхука (безопасный вариант без токена в URL)
-webhook_full_url = f"{WEBHOOK_URL}/webhook"
+# Формируем URL для установки вебхука
+webhook_full_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
 set_webhook_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
 
 # Параметры для установки вебхука
