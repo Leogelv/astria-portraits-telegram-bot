@@ -6,6 +6,7 @@
 import os
 from loguru import logger
 from bot import AstriaBot
+from healthcheck import run_healthcheck_in_thread
 
 def main():
     """Основная функция для запуска бота"""
@@ -13,6 +14,10 @@ def main():
     os.makedirs("logs", exist_ok=True)
     
     logger.info("Запуск телеграм-бота Astria AI")
+    
+    # Запускаем healthcheck сервер в отдельном потоке
+    healthcheck_thread = run_healthcheck_in_thread()
+    logger.info("Healthcheck сервер запущен в отдельном потоке")
     
     try:
         # Создаем и запускаем бота
