@@ -1128,7 +1128,7 @@ class AstriaBot:
             listen="0.0.0.0",
             port=int(os.environ.get("PORT", 8443)),
             url_path=TELEGRAM_BOT_TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}",
+            webhook_url=f"{WEBHOOK_URL}/webhook",
             secret_token=WEBHOOK_SECRET
         )
         
