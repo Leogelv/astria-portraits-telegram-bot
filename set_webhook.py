@@ -1,34 +1,10 @@
 #!/usr/bin/env python3
-import os
 import requests
-from dotenv import load_dotenv
-from loguru import logger
 
-# Загружаем переменные окружения из .env файла
-load_dotenv()
-
-# Получаем переменные из .env
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
-
-# Выводим значения для отладки
-print(f"TELEGRAM_BOT_TOKEN: {TELEGRAM_BOT_TOKEN}")
-print(f"WEBHOOK_URL: {WEBHOOK_URL}")
-print(f"WEBHOOK_SECRET: {WEBHOOK_SECRET}")
-
-# Проверяем наличие переменных
-if not TELEGRAM_BOT_TOKEN:
-    logger.error("TELEGRAM_BOT_TOKEN не найден в переменных окружения")
-    exit(1)
-
-if not WEBHOOK_URL:
-    logger.error("WEBHOOK_URL не найден в переменных окружения")
-    exit(1)
-
-if not WEBHOOK_SECRET:
-    logger.error("WEBHOOK_SECRET не найден в переменных окружения")
-    exit(1)
+# Используем новый токен напрямую
+TELEGRAM_BOT_TOKEN = "7841199395:AAFm779B_P_RaeNSjd0H7v-SNWBD0QMi2Z4"
+WEBHOOK_URL = "https://astria-portraits-telegram-bot-production.up.railway.app"
+WEBHOOK_SECRET = "verySecretWebhookKey123"
 
 # Формируем URL для установки вебхука
 webhook_full_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
@@ -48,8 +24,6 @@ response = requests.post(set_webhook_url, json=webhook_params)
 if response.status_code == 200 and response.json().get("ok"):
     print("✅ Вебхук успешно установлен!")
     print(f"URL вебхука: {webhook_full_url}")
-    print(f"Секретный токен: {WEBHOOK_SECRET}")
-    print("\nИнформация о текущем вебхуке:")
     
     # Получаем информацию о вебхуке
     webhook_info_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getWebhookInfo"
@@ -58,10 +32,5 @@ if response.status_code == 200 and response.json().get("ok"):
         info = info_response.json().get("result", {})
         for key, value in info.items():
             print(f"{key}: {value}")
-    else:
-        print(f"Не удалось получить информацию о вебхуке: {info_response.text}")
 else:
-    print(f"❌ Ошибка при установке вебхука: {response.text}")
-
-print("\nДля запуска бота в режиме вебхука выполните:")
-print("python main.py") 
+    print(f"❌ Ошибка при установке вебхука: {response.text}") 
