@@ -957,8 +957,43 @@ class AstriaBot:
         """Обработка обновления от вебхука"""
         logger.debug(f"Получено обновление от вебхука: {update_data}")
         
+        # Проверяем, является ли это обновлением от Telegram
+        if "update_id" in update_data:
+            logger.info(f"Получено обновление от Telegram: {update_data.get('update_id')}")
+            
+            # Проверяем наличие callback_query
+            if "callback_query" in update_data:
+                logger.info(f"Получен callback_query: {update_data.get('callback_query', {}).get('data')}")
+                logger.debug(f"Полный callback_query: {update_data.get('callback_query')}")
+                # Конвертируем dict в объект Update и обрабатываем
+                update = Update.de_json(data=update_data, bot=self.application.bot)
+                if update:
+                    logger.info(f"Успешно создан объект Update с ID {update.update_id}")
+                    await self.application.process_update(update)
+                else:
+                    logger.error(f"Не удалось создать объект Update из данных: {update_data}")
+            
+            # Проверяем наличие сообщения
+            elif "message" in update_data:
+                logger.info(f"Получено сообщение от пользователя {update_data.get('message', {}).get('from', {}).get('id')}")
+                # Конвертируем dict в объект Update и обрабатываем
+                update = Update.de_json(data=update_data, bot=self.application.bot)
+                if update:
+                    logger.info(f"Успешно создан объект Update с ID {update.update_id}")
+                    await self.application.process_update(update)
+                else:
+                    logger.error(f"Не удалось создать объект Update из данных: {update_data}")
+            
+            # Другие типы обновлений от Telegram
+            else:
+                logger.warning(f"Получен неизвестный тип обновления от Telegram: {update_data}")
+                # Попробуем обработать в любом случае
+                update = Update.de_json(data=update_data, bot=self.application.bot)
+                if update:
+                    await self.application.process_update(update)
+        
         # Обработка обновления статуса модели
-        if update_data.get("type") == "model_status_update":
+        elif update_data.get("type") == "model_status_update":
             await self.handle_model_status_update(update_data)
         
         # Обработка обновления статуса промпта
