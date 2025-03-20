@@ -182,8 +182,8 @@ class AstriaBot:
         user_id = update.effective_user.id
         logger.info(f"Пользователь {user_id} начал обучение модели")
         
-        # Устанавливаем состояние загрузки фотографий
-        self.state_manager.set_state(user_id, UserState.UPLOADING_PHOTOS)
+        # Устанавливаем состояние ввода имени модели
+        self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
         self.state_manager.clear_data(user_id)
         
         # Создаем клавиатуру с кнопкой отмены
@@ -192,22 +192,12 @@ class AstriaBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # URL для фото с инструкциями - используем прямую ссылку на изображение
-        instructions_photo_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-        
-        try:
-            # Отправляем фото с инструкциями и кнопкой отмены
-            await context.bot.send_photo(
-                chat_id=user_id,
-                photo=instructions_photo_url,
-                caption=UPLOAD_PHOTOS_MESSAGE,
-                reply_markup=reply_markup
-            )
-            logger.info(f"Отправка фото с инструкциями пользователю {user_id} успешна")
-        except Exception as e:
-            logger.error(f"Ошибка при отправке фото с инструкциями: {e}", exc_info=True)
-            # Если что-то пошло не так, отправляем текстовое сообщение
-            await update.message.reply_text(UPLOAD_PHOTOS_MESSAGE, reply_markup=reply_markup)
+        # Отправляем запрос на ввод имени модели
+        await update.message.reply_text(
+            "📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
+            reply_markup=reply_markup
+        )
+        logger.info(f"Запрос имени модели отправлен пользователю {user_id}")
 
     async def generate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /generate"""
@@ -363,13 +353,33 @@ class AstriaBot:
                 f"Осталось загрузить: {MAX_PHOTOS - photos_count} фото."
             )
             
-            # Если загружены все фотографии, переходим к вводу имени модели
+            # Если загружены все фотографии, переходим к подтверждению обучения модели
             if photos_count >= MAX_PHOTOS:
-                self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
+                # Получаем данные о модели
+                model_name = self.state_manager.get_data(user_id, "model_name")
+                model_type = self.state_manager.get_data(user_id, "model_type")
                 
-                await update.message.reply_text(
-                    "📝 Введите имя для вашей модели (например, 'Моя фотосессия'):"
+                # Создаем клавиатуру для подтверждения
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Да, начать обучение", callback_data="start_training"),
+                        InlineKeyboardButton("Отмена", callback_data="cancel_training")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Отправляем сообщение о завершении загрузки и запрос на подтверждение
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"✅ Все фотографии ({photos_count}) успешно загружены!\n\n"
+                         f"Данные для обучения модели:\n"
+                         f"Название: {model_name}\n"
+                         f"Тип: {'Мужчина' if model_type == 'male' else 'Женщина'}\n"
+                         f"Количество фотографий: {photos_count}\n\n"
+                         f"Начать обучение модели?",
+                    reply_markup=reply_markup
                 )
+                logger.info(f"Отправлен запрос на подтверждение обучения модели пользователю {user_id}")
         except Exception as e:
             logger.error(f"Ошибка при обработке фотографии: {e}")
             await update.message.reply_text(
@@ -380,7 +390,7 @@ class AstriaBot:
         """Обработчик медиагрупп"""
         if not update.effective_message:
             return
-
+        
         media_group_id = update.effective_message.media_group_id
         if not media_group_id:
             return
@@ -414,8 +424,8 @@ class AstriaBot:
         if file_path not in self.media_groups[media_group_id]["file_paths"]:
             # Добавляем путь к файлу в список
             self.media_groups[media_group_id]["file_paths"].append(file_path)
-            self.media_groups[media_group_id]["last_update"] = datetime.now().timestamp()
-            logger.info(f"Добавлен URL фотографии в медиагруппу {media_group_id}: {file_path}")
+        self.media_groups[media_group_id]["last_update"] = datetime.now().timestamp()
+        logger.info(f"Добавлен URL фотографии в медиагруппу {media_group_id}: {file_path}")
         
         # Если есть активная задача обработки, отменяем ее
         if self.media_groups[media_group_id].get("processing_task"):
@@ -605,51 +615,27 @@ class AstriaBot:
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
-                    # URL для фото с инструкциями
-                    instructions_photo_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-                    
-                    # Устанавливаем состояние загрузки фотографий
-                    self.state_manager.set_state(user_id, UserState.UPLOADING_PHOTOS)
+                    # Устанавливаем состояние ввода имени модели
+                    self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
                     self.state_manager.clear_data(user_id)
-                    logger.info(f"Установлено состояние UPLOADING_PHOTOS для пользователя {user_id}")
+                    logger.info(f"Установлено состояние ENTERING_MODEL_NAME для пользователя {user_id}")
                     
                     # Пробуем изменить текущее сообщение
                     try:
                         await query.edit_message_caption(
-                            caption="Начинаем процесс обучения модели...",
+                            caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
                             reply_markup=reply_markup
                         )
                         logger.info(f"Обновлено сообщение для пользователя {user_id}")
                     except Exception as e:
                         logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
                         # В случае ошибки отправляем новое сообщение
-                        try:
-                            await context.bot.send_message(
-                                chat_id=user_id,
-                                text="Начинаем процесс обучения модели..."
-                            )
-                            logger.info(f"Отправлено подготовительное сообщение пользователю {user_id}")
-                        except Exception as err:
-                            logger.error(f"Ошибка при отправке подготовительного сообщения: {err}", exc_info=True)
-                    
-                    # Отправляем фото с инструкциями
-                    try:
-                        await context.bot.send_photo(
-                            chat_id=user_id,
-                            photo=instructions_photo_url,
-                            caption=UPLOAD_PHOTOS_MESSAGE,
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Отправлено фото с инструкциями пользователю {user_id}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при отправке фото с инструкциями: {e}", exc_info=True)
-                        # Если не удалось отправить фото, отправляем текстовое сообщение
                         await context.bot.send_message(
                             chat_id=user_id,
-                            text=UPLOAD_PHOTOS_MESSAGE,
+                            text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
                             reply_markup=reply_markup
                         )
-                        logger.info(f"Отправлено текстовое сообщение с инструкциями пользователю {user_id}")
+                        logger.info(f"Отправлен запрос имени модели пользователю {user_id}")
                 
                 elif command == "generate":
                     logger.info(f"Начинаю обработку команды generate из callback для пользователя {user_id}")
@@ -876,55 +862,36 @@ class AstriaBot:
             # Сохраняем тип модели
             self.state_manager.set_data(user_id, "model_type", model_type)
             
-            # Запрашиваем подтверждение обучения модели
-            model_name = self.state_manager.get_data(user_id, "model_name")
-            photos = self.state_manager.get_list(user_id, "photos")
+            # Меняем состояние на загрузку фотографий
+            self.state_manager.set_state(user_id, UserState.UPLOADING_PHOTOS)
             
-            if not model_name or not photos:
-                logger.error(f"Отсутствуют данные для обучения модели у пользователя {user_id}: name={bool(model_name)}, photos={len(photos) if photos else 0}")
-                try:
-                    await query.edit_message_text("Произошла ошибка: не найдены данные для обучения модели. Пожалуйста, начните сначала с команды /train.")
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке сообщения об ошибке: {e}", exc_info=True)
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Произошла ошибка: не найдены данные для обучения модели. Пожалуйста, начните сначала с команды /train."
-                    )
-                self.state_manager.reset_state(user_id)
-                return
-            
+            # Создаем клавиатуру с кнопкой отмены
             keyboard = [
-                [
-                    InlineKeyboardButton("Да, начать обучение", callback_data="start_training"),
-                    InlineKeyboardButton("Отмена", callback_data="cancel_training")
-                ]
+                [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            # URL для фото с инструкциями
+            instructions_photo_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
+            
+            # Отправляем инструкции по загрузке фотографий
             try:
-                await query.edit_message_text(
-                    f"Данные для обучения модели:\n\n"
-                    f"Название: {model_name}\n"
-                    f"Тип: {'Мужчина' if model_type == 'male' else 'Женщина'}\n"
-                    f"Количество фотографий: {len(photos)}\n\n"
-                    f"Начать обучение модели?",
+                await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=instructions_photo_url,
+                    caption=UPLOAD_PHOTOS_MESSAGE,
                     reply_markup=reply_markup
                 )
-                logger.info(f"Отправлен запрос на подтверждение обучения модели пользователю {user_id}")
+                logger.info(f"Отправлено фото с инструкциями по загрузке фотографий пользователю {user_id}")
             except Exception as e:
-                logger.error(f"Ошибка при отправке запроса на подтверждение: {e}", exc_info=True)
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"Данные для обучения модели:\n\n"
-                        f"Название: {model_name}\n"
-                        f"Тип: {'Мужчина' if model_type == 'male' else 'Женщина'}\n"
-                        f"Количество фотографий: {len(photos)}\n\n"
-                        f"Начать обучение модели?",
-                        reply_markup=reply_markup
-                    )
-                except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение с запросом на подтверждение: {send_error}", exc_info=True)
+                logger.error(f"Ошибка при отправке фото с инструкциями: {e}", exc_info=True)
+                # Если не удалось отправить фото, отправляем текстовое сообщение
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=UPLOAD_PHOTOS_MESSAGE,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлено текстовое сообщение с инструкциями пользователю {user_id}")
         
         elif callback_data == "start_training":
             # Начать обучение модели
