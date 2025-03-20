@@ -1,0 +1,24 @@
+{
+  "name": "astria-portraits-telegram-bot",
+  "description": "Telegram bot for Astria AI",
+  "repository": "https://github.com/Leogelv/astria-portraits-telegram-bot",
+  "env": {
+    "TELEGRAM_BOT_TOKEN": {
+      "description": "Your Telegram Bot Token from BotFather",
+      "value": "7841199395:AAFm779B_P_RaeNSjd0H7v-SNWBD0QMi2Z4"
+    },
+    "WEBHOOK_URL": {
+      "description": "URL for webhook",
+      "value": "https://astria-portraits-telegram-bot-production.up.railway.app"
+    },
+    "WEBHOOK_SECRET": {
+      "description": "Secret for webhook validation",
+      "value": "verySecretWebhookKey123"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+} 

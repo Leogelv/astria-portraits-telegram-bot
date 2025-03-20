@@ -9,12 +9,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копирование файлов проекта
 COPY . .
 
-# Переменные окружения для портов
+# Переменные окружения для порта
 ENV PORT=8080
-ENV HEALTHCHECK_PORT=3000
 
-# Открываем оба порта
-EXPOSE 8080 3000
+# Открываем порт
+EXPOSE 8080
 
 # Запуск приложения
 CMD ["python", "main.py"] 
