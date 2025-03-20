@@ -131,8 +131,34 @@ class AstriaBot:
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
         
-        # Отправляем приветственное сообщение
-        await update.message.reply_text(WELCOME_MESSAGE)
+        # Создаем клавиатуру с кнопками для основных команд
+        keyboard = [
+            [
+                InlineKeyboardButton("🖼 Обучить модель", callback_data="cmd_train"),
+                InlineKeyboardButton("✨ Генерировать изображения", callback_data="cmd_generate")
+            ],
+            [
+                InlineKeyboardButton("📋 Мои модели", callback_data="cmd_models"),
+                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Используем URL изображения для приветствия (заглушка, нужно заменить на реальный URL)
+        image_url = "https://www.astria.ai/assets/og-image.png"
+        
+        try:
+            # Отправляем приветственное сообщение с фото и кнопками
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=image_url,
+                caption=WELCOME_MESSAGE,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при отправке приветственного сообщения с фото: {e}")
+            # Запасной вариант - просто текстовое сообщение
+            await update.message.reply_text(WELCOME_MESSAGE)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /help"""
@@ -156,8 +182,27 @@ class AstriaBot:
         self.state_manager.set_state(user_id, UserState.UPLOADING_PHOTOS)
         self.state_manager.clear_data(user_id)
         
-        # Отправляем сообщение с инструкциями
-        await update.message.reply_text(UPLOAD_PHOTOS_MESSAGE)
+        # Создаем клавиатуру с кнопкой отмены
+        keyboard = [
+            [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Используем URL изображения для инструкций (заглушка)
+        image_url = "https://www.astria.ai/assets/og-image.png"
+        
+        try:
+            # Отправляем сообщение с инструкциями и фото
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=image_url,
+                caption=UPLOAD_PHOTOS_MESSAGE,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения с инструкциями и фото: {e}")
+            # Запасной вариант - просто текстовое сообщение
+            await update.message.reply_text(UPLOAD_PHOTOS_MESSAGE)
 
     async def generate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /generate"""
@@ -552,7 +597,36 @@ class AstriaBot:
         logger.info(f"Пользователь {user_id} отправил callback: {callback_data}")
         
         # Обрабатываем callback-данные
-        if callback_data.startswith("model_"):
+        if callback_data.startswith("cmd_"):
+            # Обработка команд из кнопок
+            command = callback_data.split("_")[1]
+            
+            if command == "train":
+                # Отвечаем на callback-запрос
+                await query.answer("Запуск обучения модели...")
+                # Имитируем вызов команды /train
+                message = update.effective_message
+                await self.train_command(update, context)
+            
+            elif command == "generate":
+                # Отвечаем на callback-запрос
+                await query.answer("Запуск генерации изображений...")
+                # Имитируем вызов команды /generate
+                await self.generate_command(update, context)
+            
+            elif command == "models":
+                # Отвечаем на callback-запрос
+                await query.answer("Загрузка списка моделей...")
+                # Имитируем вызов команды /models
+                await self.models_command(update, context)
+            
+            elif command == "credits":
+                # Отвечаем на callback-запрос
+                await query.answer("Проверка баланса кредитов...")
+                # Имитируем вызов команды /credits
+                await self.credits_command(update, context)
+        
+        elif callback_data.startswith("model_"):
             # Выбор модели для генерации изображений
             model_id = int(callback_data.split("_")[1])
             
@@ -1007,18 +1081,39 @@ class AstriaBot:
         
         user_id = update.effective_user.id
         
+        # Создаем клавиатуру с кнопками для дальнейших действий
+        keyboard = [
+            [
+                InlineKeyboardButton("🔄 Сгенерировать еще", callback_data="cmd_generate"),
+                InlineKeyboardButton("📋 Мои модели", callback_data="cmd_models")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         # Отправляем сообщение о готовности изображений
         await update.message.reply_text(
             f"✅ Изображения успешно сгенерированы!\n"
-            f"Количество изображений: {len(images)}"
+            f"Количество изображений: {len(images)}\n\n"
+            f"Отправляю ваши изображения...",
+            reply_markup=reply_markup
         )
         
-        # Отправляем каждое изображение отдельным сообщением
+        # Отправляем каждое изображение отдельным сообщением с мини-кнопками
         for i, image_url in enumerate(images, 1):
             try:
+                # Создаем кнопки для каждого изображения
+                img_keyboard = [
+                    [
+                        InlineKeyboardButton("💾 Скачать", url=image_url),
+                        InlineKeyboardButton("🔍 Открыть", url=image_url)
+                    ]
+                ]
+                img_reply_markup = InlineKeyboardMarkup(img_keyboard)
+                
                 await update.message.reply_photo(
                     photo=image_url,
-                    caption=f"Изображение #{i}"
+                    caption=f"✨ Изображение #{i} из {len(images)}",
+                    reply_markup=img_reply_markup
                 )
             except Exception as e:
                 logger.error(f"Ошибка при отправке изображения {i}: {e}")
