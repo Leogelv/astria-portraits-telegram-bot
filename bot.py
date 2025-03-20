@@ -145,7 +145,7 @@ class AstriaBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # URL для фото приветствия
-        welcome_photo_url = "https://www.astria.ai/assets/og-image.png"
+        welcome_photo_url = "https://i.ibb.co/QvStjj7/file-72.png"
         
         try:
             # Отправляем фото с приветственным сообщением и кнопками
@@ -155,8 +155,9 @@ class AstriaBot:
                 caption=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
+            logger.info(f"Отправка приветственного фото пользователю {user_id} успешна")
         except Exception as e:
-            logger.error(f"Ошибка при отправке приветственного фото: {e}")
+            logger.error(f"Ошибка при отправке приветственного фото: {e}", exc_info=True)
             # Если что-то пошло не так, отправляем текстовое сообщение
             await update.message.reply_text(WELCOME_MESSAGE, reply_markup=reply_markup)
 
@@ -189,7 +190,7 @@ class AstriaBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # URL для фото с инструкциями
-        instructions_photo_url = "https://www.astria.ai/assets/og-image.png"
+        instructions_photo_url = "https://i.ibb.co/QvStjj7/file-72.png"
         
         try:
             # Отправляем фото с инструкциями и кнопкой отмены
@@ -199,8 +200,9 @@ class AstriaBot:
                 caption=UPLOAD_PHOTOS_MESSAGE,
                 reply_markup=reply_markup
             )
+            logger.info(f"Отправка фото с инструкциями пользователю {user_id} успешна")
         except Exception as e:
-            logger.error(f"Ошибка при отправке фото с инструкциями: {e}")
+            logger.error(f"Ошибка при отправке фото с инструкциями: {e}", exc_info=True)
             # Если что-то пошло не так, отправляем текстовое сообщение
             await update.message.reply_text(UPLOAD_PHOTOS_MESSAGE, reply_markup=reply_markup)
 
@@ -601,30 +603,141 @@ class AstriaBot:
             # Обработка команд из кнопок
             command = callback_data.split("_")[1]
             
-            if command == "train":
-                # Отвечаем на callback-запрос
-                await query.answer("Запуск обучения модели...")
-                # Имитируем вызов команды /train
-                message = update.effective_message
-                await self.train_command(update, context)
+            # Отвечаем на callback-запрос
+            await query.answer(f"Выполняю команду: {command}")
+            logger.info(f"Обработка команды из callback: {command}")
             
-            elif command == "generate":
-                # Отвечаем на callback-запрос
-                await query.answer("Запуск генерации изображений...")
-                # Имитируем вызов команды /generate
-                await self.generate_command(update, context)
-            
-            elif command == "models":
-                # Отвечаем на callback-запрос
-                await query.answer("Загрузка списка моделей...")
-                # Имитируем вызов команды /models
-                await self.models_command(update, context)
-            
-            elif command == "credits":
-                # Отвечаем на callback-запрос
-                await query.answer("Проверка баланса кредитов...")
-                # Имитируем вызов команды /credits
-                await self.credits_command(update, context)
+            try:
+                if command == "train":
+                    # Создаем клавиатуру с кнопкой отмены
+                    keyboard = [
+                        [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # URL для фото с инструкциями
+                    instructions_photo_url = "https://i.ibb.co/QvStjj7/file-72.png"
+                    
+                    # Устанавливаем состояние загрузки фотографий
+                    self.state_manager.set_state(user_id, UserState.UPLOADING_PHOTOS)
+                    self.state_manager.clear_data(user_id)
+                    
+                    # Отправляем фото с инструкциями напрямую через context.bot
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=instructions_photo_url,
+                        caption=UPLOAD_PHOTOS_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлено фото с инструкциями через callback для команды train пользователю {user_id}")
+                
+                elif command == "generate":
+                    # Получаем модели пользователя
+                    models = await self.db.get_user_models(user_id)
+                    
+                    if not models:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                        )
+                        return
+                    
+                    # Создаем клавиатуру с моделями
+                    keyboard = []
+                    for model in models:
+                        # Получаем детали модели
+                        model_details = await self.db.get_model_details(model["model_id"])
+                        model_name = model_details.get("name", f"Модель #{model['model_id']}") if model_details else f"Модель #{model['model_id']}"
+                        
+                        keyboard.append([
+                            InlineKeyboardButton(model_name, callback_data=f"model_{model['model_id']}")
+                        ])
+                    
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Устанавливаем состояние выбора модели
+                    self.state_manager.set_state(user_id, UserState.SELECTING_MODEL)
+                    
+                    # Отправляем сообщение с фото и списком моделей
+                    test_image_url = "https://i.ibb.co/QvStjj7/file-72.png"
+                    
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=test_image_url,
+                        caption="Выберите модель для генерации изображений:",
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлен список моделей через callback для команды generate пользователю {user_id}")
+                
+                elif command == "models":
+                    # Получаем модели пользователя
+                    models = await self.db.get_user_models(user_id)
+                    
+                    if not models:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                        )
+                        return
+                    
+                    # Формируем сообщение со списком моделей
+                    message = "📋 Ваши модели:\n\n"
+                    
+                    for model in models:
+                        # Получаем детали модели
+                        model_details = await self.db.get_model_details(model["model_id"])
+                        
+                        model_name = model_details.get("name", f"Модель #{model['model_id']}") if model_details else f"Модель #{model['model_id']}"
+                        model_status = model["status"]
+                        model_date = model["created_at"].split("T")[0] if isinstance(model["created_at"], str) else "Неизвестно"
+                        
+                        message += f"🔹 {model_name}\n"
+                        message += f"   ID: {model['model_id']}\n"
+                        message += f"   Статус: {model_status}\n"
+                        message += f"   Создана: {model_date}\n\n"
+                    
+                    # Отправляем сообщение с фото
+                    test_image_url = "https://i.ibb.co/QvStjj7/file-72.png"
+                    
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=test_image_url,
+                        caption=message
+                    )
+                    logger.info(f"Отправлен список моделей через callback для команды models пользователю {user_id}")
+                
+                elif command == "credits":
+                    # Получаем пользователя из базы данных
+                    user = await self.db.get_user(user_id)
+                    
+                    if not user:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text="Произошла ошибка при получении информации о кредитах."
+                        )
+                        return
+                    
+                    credits = user.get("credits", 0)
+                    message = f"💰 У вас {credits} кредитов.\n\n" \
+                              f"Каждое обучение модели стоит 1 кредит.\n" \
+                              f"Каждая генерация изображений стоит 1 кредит."
+                    
+                    # Отправляем сообщение с фото
+                    test_image_url = "https://i.ibb.co/QvStjj7/file-72.png"
+                    
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=test_image_url,
+                        caption=message
+                    )
+                    logger.info(f"Отправлена информация о кредитах через callback для команды credits пользователю {user_id}")
+                
+            except Exception as e:
+                logger.error(f"Ошибка при обработке callback команды {command}: {e}", exc_info=True)
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"❌ Произошла ошибка при выполнении команды. Пожалуйста, попробуйте еще раз или используйте команду /start для перезапуска бота."
+                )
         
         elif callback_data.startswith("model_"):
             # Выбор модели для генерации изображений
@@ -1080,6 +1193,10 @@ class AstriaBot:
             return
         
         user_id = update.effective_user.id
+        logger.info(f"Начало отправки сгенерированных изображений пользователю {user_id}")
+        
+        # Заменяем URL изображений на наш фиксированный URL для тестирования
+        test_image_url = "https://i.ibb.co/QvStjj7/file-72.png"
         
         # Создаем клавиатуру с кнопками для дальнейших действий
         keyboard = [
@@ -1090,14 +1207,18 @@ class AstriaBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Отправляем сообщение о готовности изображений
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"✅ Изображения успешно сгенерированы!\n"
-            f"Количество изображений: {len(images)}\n\n"
-            f"Отправляю ваши изображения...",
-            reply_markup=reply_markup
-        )
+        try:
+            # Отправляем сообщение о готовности изображений
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ Изображения успешно сгенерированы!\n"
+                f"Количество изображений: {len(images)}\n\n"
+                f"Отправляю ваши изображения...",
+                reply_markup=reply_markup
+            )
+            logger.info(f"Отправлено сообщение о готовности изображений пользователю {user_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения о готовности изображений: {e}", exc_info=True)
         
         # Отправляем каждое изображение отдельным сообщением с мини-кнопками
         for i, image_url in enumerate(images, 1):
@@ -1105,24 +1226,29 @@ class AstriaBot:
                 # Создаем кнопки для каждого изображения
                 img_keyboard = [
                     [
-                        InlineKeyboardButton("💾 Скачать", url=image_url),
-                        InlineKeyboardButton("🔍 Открыть", url=image_url)
+                        InlineKeyboardButton("💾 Скачать", url=test_image_url),
+                        InlineKeyboardButton("🔍 Открыть", url=test_image_url)
                     ]
                 ]
                 img_reply_markup = InlineKeyboardMarkup(img_keyboard)
                 
+                logger.info(f"Попытка отправки изображения #{i} пользователю {user_id}")
                 await context.bot.send_photo(
                     chat_id=user_id,
-                    photo=image_url,
+                    photo=test_image_url,  # Используем тестовое изображение
                     caption=f"✨ Изображение #{i} из {len(images)}",
                     reply_markup=img_reply_markup
                 )
+                logger.info(f"Изображение #{i} успешно отправлено пользователю {user_id}")
             except Exception as e:
-                logger.error(f"Ошибка при отправке изображения {i}: {e}")
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"❌ Не удалось отправить изображение #{i}. URL: {image_url}"
-                )
+                logger.error(f"Ошибка при отправке изображения {i}: {e}", exc_info=True)
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"❌ Не удалось отправить изображение #{i}. URL: {image_url}"
+                    )
+                except Exception as send_error:
+                    logger.error(f"Не удалось отправить сообщение об ошибке: {send_error}", exc_info=True)
 
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик ошибок"""
