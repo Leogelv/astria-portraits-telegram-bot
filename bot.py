@@ -276,6 +276,10 @@ class AstriaBot:
         if not update.effective_user or not update.message or not update.message.photo:
             return
         
+        # Если есть media_group_id, передаем управление в handle_media_group
+        if update.message.media_group_id:
+            return await self.handle_media_group(update, context)
+        
         user_id = update.effective_user.id
         state = self.state_manager.get_state(user_id)
         
