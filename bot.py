@@ -76,8 +76,8 @@ class AstriaBot:
         logger.info("Инициализация бота Astria AI")
         
         # Инициализируем Supabase логгер
-        self.supa_logger = SupabaseLogger(API_BASE_URL)
-        logger.info("Инициализирован Supabase логгер")
+        # self.supa_logger = SupabaseLogger(API_BASE_URL)
+        # logger.info("Инициализирован Supabase логгер")
         
         # Словарь для отслеживания медиагрупп
         self.media_groups = {}
@@ -377,141 +377,43 @@ class AstriaBot:
             )
 
     async def handle_media_group(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработчик медиагруппы (группы фотографий)"""
-        if not update.effective_user or not update.message or not update.message.photo:
+        """Обработчик медиагрупп"""
+        if not update.effective_message:
             return
-        
-        if not update.message.media_group_id:
-            # Это одиночное фото, не медиагруппа
-            return await self.handle_photo(update, context)
-        
-        user = update.effective_user
-        user_id = user.id
-        username = user.username or ""
-        media_group_id = update.message.media_group_id
-        
-        # Логируем получение фото из медиагруппы
-        logger.info(f"Получено фото из медиагруппы {media_group_id} от пользователя {user_id} ({username})")
-        
-        # Регистрируем пользователя, если он не зарегистрирован
-        await self.register_user(user_id, username, user.first_name or "", user.last_name or "")
-        
-        # Инициализируем медиагруппу в словаре, если её еще нет
-        if media_group_id not in self.media_groups:
-            self.media_groups[media_group_id] = {
-                "user_id": user_id,
-                "photos": [],
-                "processed": False,
-                "last_update": datetime.now().timestamp()
-            }
-            
-            # Создаем запись о медиагруппе в базе данных
-            await self.db.create_media_group(media_group_id, user_id)
-            
-            # Запрашиваем имя и тип модели у пользователя
-            keyboard = [
-                [
-                    InlineKeyboardButton("Мужчина", callback_data=f"mgtype_{media_group_id}_male"),
-                    InlineKeyboardButton("Женщина", callback_data=f"mgtype_{media_group_id}_female")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                "Отлично! Вы отправили группу фотографий. "
-                "Пожалуйста, введите название для новой модели и выберите тип:",
-                reply_markup=reply_markup
-            )
-        
-        # Проверяем, что фото от того же пользователя
-        if self.media_groups[media_group_id]["user_id"] != user_id:
-            logger.warning(f"Попытка добавить фото в медиагруппу {media_group_id} от другого пользователя: {user_id}")
+
+        media_group = update.effective_message.media_group_id
+        if not media_group:
             return
-        
-        # Получаем фото
-        photo = update.message.photo[-1]  # Берем самое большое фото
-        photo_file = await context.bot.get_file(photo.file_id)
-        photo_url = photo_file.file_path
-        
-        # Добавляем URL фото в список
-        self.media_groups[media_group_id]["photos"].append(photo_url)
-        self.media_groups[media_group_id]["last_update"] = datetime.now().timestamp()
-        
-        # Логируем добавление фото в медиагруппу
-        logger.debug(f"Добавлено фото в медиагруппу {media_group_id}: {photo_url}")
-        
-    async def handle_media_group_type_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, media_group_id: str, model_type: str) -> None:
-        """Обработчик выбора типа модели для медиагруппы"""
-        query = update.callback_query
-        user_id = query.from_user.id
-        
-        # Проверяем, существует ли медиагруппа и принадлежит ли она этому пользователю
-        if media_group_id not in self.media_groups or self.media_groups[media_group_id]["user_id"] != user_id:
-            await query.answer("Медиагруппа не найдена или принадлежит другому пользователю")
-            return
-        
-        # Сохраняем тип модели для медиагруппы
-        self.media_groups[media_group_id]["model_type"] = model_type
-        
-        # Просим ввести название модели
-        await query.edit_message_text(
-            f"Выбран тип модели: {'Мужчина' if model_type == 'male' else 'Женщина'}\n\n"
-            f"Пожалуйста, отправьте название для новой модели:"
-        )
-        
-        # Устанавливаем состояние пользователя для ожидания названия модели
-        self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME_FOR_MEDIA_GROUP)
-        self.state_manager.set_data(user_id, "media_group_id", media_group_id)
-        
-    async def process_media_group(self, user_id: int, media_group_id: str, model_name: str) -> None:
-        """Обработка медиагруппы и отправка на фиксацию модели"""
-        if media_group_id not in self.media_groups:
-            logger.error(f"Медиагруппа {media_group_id} не найдена для обработки")
-            return
-        
-        media_group = self.media_groups[media_group_id]
-        if media_group["processed"]:
-            logger.warning(f"Медиагруппа {media_group_id} уже обработана")
-            return
-        
-        # Отмечаем медиагруппу как обработанную
-        media_group["processed"] = True
-        media_group["model_name"] = model_name
-        
-        # Логируем обработку медиагруппы
-        logger.info(f"Обработка медиагруппы {media_group_id}: название модели '{model_name}', тип '{media_group.get('model_type', 'unknown')}', фотографий: {len(media_group['photos'])}")
-        
-        # Обновляем медиагруппу в базе данных
-        urls = media_group["photos"]
-        await self.db.update_media_group_urls(media_group_id, urls)
-        
-        # Отправляем медиагруппу на вебхук для фиксации модели
-        response = await self.api.send_media_group_to_finetune(
-            model_name=model_name,
-            model_type=media_group.get("model_type", "unknown"),
-            file_urls=urls,
-            telegram_id=user_id
-        )
-        
-        # Отправляем пользователю сообщение о результате
-        if response["status"] in (200, 201, 202):
-            # Отправляем сообщение через бота
-            await self.application.bot.send_message(
-                user_id,
-                f"✅ Ваша медиагруппа успешно отправлена на обучение модели!\n\n"
-                f"Название модели: {model_name}\n"
-                f"Тип модели: {'Мужчина' if media_group.get('model_type') == 'male' else 'Женщина'}\n"
-                f"Количество фотографий: {len(urls)}\n\n"
-                f"Мы уведомим вас, когда модель будет готова."
-            )
-        else:
-            error_message = response["data"].get("error", "Unknown error")
-            await self.application.bot.send_message(
-                user_id,
-                f"❌ Произошла ошибка при отправке медиагруппы на обучение модели.\n\n"
-                f"Ошибка: {error_message}\n\n"
-                f"Пожалуйста, попробуйте еще раз или обратитесь к администратору."
-            )
+
+        # Получаем ID всех файлов в медиагруппе
+        file_ids = [media.file_id for media in update.effective_message.photo]
+
+        # Получаем пути к файлам
+        file_paths = []
+        for file_id in file_ids:
+            file = await context.bot.get_file(file_id)
+            file_paths.append(file.file_path)
+
+        # Формируем данные для отправки
+        model_name = "example_model_name"  # Замените на реальное имя модели
+        model_type = "example_model_type"  # Замените на реальный тип модели
+        data = {
+            "model_name": model_name,
+            "model_type": model_type,
+            "file_paths": file_paths
+        }
+
+        # Отправляем данные на вебхук
+        async with aiohttp.ClientSession() as session:
+            async with session.post('https://n8n2.supashkola.ru/webhook/start_finetune', json=data) as response:
+                if response.status == 200:
+                    logger.info("Данные успешно отправлены на вебхук")
+                else:
+                    logger.error(f"Ошибка при отправке данных на вебхук: {response.status}")
+
+        # Логируем событие - ОТКЛЮЧЕНО
+        # await self.supa_logger.create_log(LogEventType.BOT_MEDIA_GROUP_RECEIVED, data)
+        logger.info(f"Получена медиагруппа с {len(file_paths)} файлами")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик текстовых сообщений"""
@@ -636,17 +538,26 @@ class AstriaBot:
                     self.state_manager.clear_data(user_id)
                     logger.info(f"Установлено состояние UPLOADING_PHOTOS для пользователя {user_id}")
                     
-                    # Пробуем сначала отправить текстовое сообщение, затем фото
+                    # Пробуем изменить текущее сообщение
                     try:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="Начинаем процесс обучения модели..."
+                        await query.edit_message_caption(
+                            caption="Начинаем процесс обучения модели...",
+                            reply_markup=reply_markup
                         )
-                        logger.info(f"Отправлено подготовительное сообщение пользователю {user_id}")
+                        logger.info(f"Обновлено сообщение для пользователя {user_id}")
                     except Exception as e:
-                        logger.error(f"Ошибка при отправке подготовительного сообщения: {e}", exc_info=True)
+                        logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+                        # В случае ошибки отправляем новое сообщение
+                        try:
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="Начинаем процесс обучения модели..."
+                            )
+                            logger.info(f"Отправлено подготовительное сообщение пользователю {user_id}")
+                        except Exception as err:
+                            logger.error(f"Ошибка при отправке подготовительного сообщения: {err}", exc_info=True)
                     
-                    # Отправляем фото с инструкциями напрямую через context.bot
+                    # Отправляем фото с инструкциями
                     try:
                         await context.bot.send_photo(
                             chat_id=user_id,
@@ -672,10 +583,18 @@ class AstriaBot:
                     models = await self.db.get_user_models(user_id)
                     
                     if not models:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
-                        )
+                        # Редактируем текущее сообщение
+                        try:
+                            await query.edit_message_caption(
+                                caption="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                            )
+                            logger.info(f"Обновлено сообщение для пользователя {user_id} - нет моделей")
+                        except Exception as e:
+                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                            )
                         logger.info(f"Пользователь {user_id} не имеет моделей")
                         return
                     
@@ -696,25 +615,34 @@ class AstriaBot:
                     self.state_manager.set_state(user_id, UserState.SELECTING_MODEL)
                     logger.info(f"Установлено состояние SELECTING_MODEL для пользователя {user_id}")
                     
-                    # Отправляем сообщение с фото и списком моделей
-                    test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-                    
+                    # Пробуем изменить текущее сообщение
                     try:
-                        await context.bot.send_photo(
-                            chat_id=user_id,
-                            photo=test_image_url,
+                        await query.edit_message_caption(
                             caption="Выберите модель для генерации изображений:",
                             reply_markup=reply_markup
                         )
-                        logger.info(f"Отправлен список моделей пользователю {user_id}")
+                        logger.info(f"Обновлено сообщение для выбора модели пользователем {user_id}")
                     except Exception as e:
-                        logger.error(f"Ошибка при отправке списка моделей: {e}", exc_info=True)
-                        # Если не удалось отправить фото, отправляем текстовое сообщение
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="Выберите модель для генерации изображений:",
-                            reply_markup=reply_markup
-                        )
+                        logger.error(f"Ошибка при обновлении сообщения для выбора модели: {e}", exc_info=True)
+                        
+                        # Если не получилось изменить текущее сообщение, отправляем новое
+                        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
+                        try:
+                            await context.bot.send_photo(
+                                chat_id=user_id,
+                                photo=test_image_url,
+                                caption="Выберите модель для генерации изображений:",
+                                reply_markup=reply_markup
+                            )
+                            logger.info(f"Отправлен список моделей пользователю {user_id}")
+                        except Exception as send_err:
+                            logger.error(f"Ошибка при отправке списка моделей: {send_err}", exc_info=True)
+                            # Если не удалось отправить фото, отправляем текстовое сообщение
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="Выберите модель для генерации изображений:",
+                                reply_markup=reply_markup
+                            )
                 
                 elif command == "models":
                     logger.info(f"Начинаю обработку команды models из callback для пользователя {user_id}")
@@ -723,10 +651,16 @@ class AstriaBot:
                     models = await self.db.get_user_models(user_id)
                     
                     if not models:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
-                        )
+                        try:
+                            await query.edit_message_caption(
+                                caption="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                            )
+                        except Exception as e:
+                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                            )
                         logger.info(f"Пользователь {user_id} не имеет моделей")
                         return
                     
@@ -746,23 +680,31 @@ class AstriaBot:
                         message += f"   Статус: {model_status}\n"
                         message += f"   Создана: {model_date}\n\n"
                     
-                    # Отправляем сообщение с фото
-                    test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-                    
+                    # Пробуем изменить текущее сообщение
                     try:
-                        await context.bot.send_photo(
-                            chat_id=user_id,
-                            photo=test_image_url,
+                        await query.edit_message_caption(
                             caption=message
                         )
-                        logger.info(f"Отправлен список моделей пользователю {user_id}")
+                        logger.info(f"Обновлено сообщение со списком моделей для пользователя {user_id}")
                     except Exception as e:
-                        logger.error(f"Ошибка при отправке списка моделей: {e}", exc_info=True)
-                        # Если не удалось отправить фото, отправляем текстовое сообщение
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=message
-                        )
+                        logger.error(f"Ошибка при обновлении сообщения со списком моделей: {e}", exc_info=True)
+                        
+                        # Если не получилось изменить текущее сообщение, отправляем новое
+                        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
+                        try:
+                            await context.bot.send_photo(
+                                chat_id=user_id,
+                                photo=test_image_url,
+                                caption=message
+                            )
+                            logger.info(f"Отправлен список моделей пользователю {user_id}")
+                        except Exception as send_err:
+                            logger.error(f"Ошибка при отправке списка моделей: {send_err}", exc_info=True)
+                            # Если не удалось отправить фото, отправляем текстовое сообщение
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text=message
+                            )
                 
                 elif command == "credits":
                     logger.info(f"Начинаю обработку команды credits из callback для пользователя {user_id}")
@@ -771,10 +713,16 @@ class AstriaBot:
                     user = await self.db.get_user(user_id)
                     
                     if not user:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="Произошла ошибка при получении информации о кредитах."
-                        )
+                        try:
+                            await query.edit_message_caption(
+                                caption="Произошла ошибка при получении информации о кредитах."
+                            )
+                        except Exception as e:
+                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="Произошла ошибка при получении информации о кредитах."
+                            )
                         logger.error(f"Не удалось получить информацию о пользователе {user_id}")
                         return
                     
@@ -783,23 +731,31 @@ class AstriaBot:
                               f"Каждое обучение модели стоит 1 кредит.\n" \
                               f"Каждая генерация изображений стоит 1 кредит."
                     
-                    # Отправляем сообщение с фото
-                    test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-                    
+                    # Пробуем изменить текущее сообщение
                     try:
-                        await context.bot.send_photo(
-                            chat_id=user_id,
-                            photo=test_image_url,
+                        await query.edit_message_caption(
                             caption=message
                         )
-                        logger.info(f"Отправлена информация о кредитах пользователю {user_id}")
+                        logger.info(f"Обновлено сообщение с информацией о кредитах для пользователя {user_id}")
                     except Exception as e:
-                        logger.error(f"Ошибка при отправке информации о кредитах: {e}", exc_info=True)
-                        # Если не удалось отправить фото, отправляем текстовое сообщение
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=message
-                        )
+                        logger.error(f"Ошибка при обновлении сообщения с информацией о кредитах: {e}", exc_info=True)
+                        
+                        # Если не получилось изменить текущее сообщение, отправляем новое
+                        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
+                        try:
+                            await context.bot.send_photo(
+                                chat_id=user_id,
+                                photo=test_image_url,
+                                caption=message
+                            )
+                            logger.info(f"Отправлена информация о кредитах пользователю {user_id}")
+                        except Exception as send_err:
+                            logger.error(f"Ошибка при отправке информации о кредитах: {send_err}", exc_info=True)
+                            # Если не удалось отправить фото, отправляем текстовое сообщение
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text=message
+                            )
                 
             except Exception as e:
                 logger.error(f"Ошибка при обработке callback команды {command}: {e}", exc_info=True)
@@ -1018,12 +974,13 @@ class AstriaBot:
         
         # Логируем в Supabase
         event_type = "astria_model_training_completed" if status == "completed" else "astria_model_training_failed"
-        await self.supa_logger.log_event(
-            event_type=event_type,
-            message=f"Статус модели {model_id} изменен на {status}",
-            data=update_data,
-            telegram_id=telegram_id
-        )
+        # await self.supa_logger.log_event(
+        #     event_type=event_type,
+        #     message=f"Статус модели {model_id} изменен на {status}",
+        #     data=update_data,
+        #     telegram_id=telegram_id
+        # )
+        logger.info(f"Event: {event_type} - Статус модели {model_id} изменен на {status} для пользователя {telegram_id}")
         
         # Обновляем статус модели в базе данных
         model_data = {
@@ -1060,12 +1017,13 @@ class AstriaBot:
         
         # Логируем в Supabase
         event_type = "image_generation_completed" if status == "completed" else "image_generation_failed"
-        await self.supa_logger.log_event(
-            event_type=event_type,
-            message=f"Статус промпта {prompt_id} изменен на {status}",
-            data=update_data,
-            telegram_id=telegram_id
-        )
+        # await self.supa_logger.log_event(
+        #     event_type=event_type,
+        #     message=f"Статус промпта {prompt_id} изменен на {status}",
+        #     data=update_data,
+        #     telegram_id=telegram_id
+        # )
+        logger.info(f"Event: {event_type} - Статус промпта {prompt_id} изменен на {status} для пользователя {telegram_id}")
         
         # Обновляем статус промпта в базе данных
         prompt_data = {
@@ -1179,44 +1137,6 @@ class AstriaBot:
                 )
             except Exception as e:
                 logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {e}")
-
-    async def handle_media_group(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработчик медиагрупп"""
-        if not update.effective_message:
-            return
-
-        media_group = update.effective_message.media_group_id
-        if not media_group:
-            return
-
-        # Получаем ID всех файлов в медиагруппе
-        file_ids = [media.file_id for media in update.effective_message.photo]
-
-        # Получаем пути к файлам
-        file_paths = []
-        for file_id in file_ids:
-            file = await context.bot.get_file(file_id)
-            file_paths.append(file.file_path)
-
-        # Формируем данные для отправки
-        model_name = "example_model_name"  # Замените на реальное имя модели
-        model_type = "example_model_type"  # Замените на реальный тип модели
-        data = {
-            "model_name": model_name,
-            "model_type": model_type,
-            "file_paths": file_paths
-        }
-
-        # Отправляем данные на вебхук
-        async with aiohttp.ClientSession() as session:
-            async with session.post('https://n8n2.supashkola.ru/webhook/start_finetune', json=data) as response:
-                if response.status == 200:
-                    logger.info("Данные успешно отправлены на вебхук")
-                else:
-                    logger.error(f"Ошибка при отправке данных на вебхук: {response.status}")
-
-        # Логируем событие
-        await self.supa_logger.create_log(LogEventType.BOT_MEDIA_GROUP_RECEIVED, data)
 
     def run(self) -> None:
         """Запуск бота"""
