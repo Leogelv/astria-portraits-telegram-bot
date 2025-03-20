@@ -144,8 +144,8 @@ class AstriaBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # URL для фото приветствия
-        welcome_photo_url = "https://i.ibb.co/QvStjj7/file-72.png"
+        # URL для фото приветствия - используем прямую ссылку на изображение
+        welcome_photo_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
         
         try:
             # Отправляем фото с приветственным сообщением и кнопками
@@ -189,8 +189,8 @@ class AstriaBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # URL для фото с инструкциями
-        instructions_photo_url = "https://i.ibb.co/QvStjj7/file-72.png"
+        # URL для фото с инструкциями - используем прямую ссылку на изображение
+        instructions_photo_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
         
         try:
             # Отправляем фото с инструкциями и кнопкой отмены
@@ -616,7 +616,7 @@ class AstriaBot:
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
                     # URL для фото с инструкциями
-                    instructions_photo_url = "https://i.ibb.co/QvStjj7/file-72.png"
+                    instructions_photo_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
                     
                     # Устанавливаем состояние загрузки фотографий
                     self.state_manager.set_state(user_id, UserState.UPLOADING_PHOTOS)
@@ -659,7 +659,7 @@ class AstriaBot:
                     self.state_manager.set_state(user_id, UserState.SELECTING_MODEL)
                     
                     # Отправляем сообщение с фото и списком моделей
-                    test_image_url = "https://i.ibb.co/QvStjj7/file-72.png"
+                    test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
                     
                     await context.bot.send_photo(
                         chat_id=user_id,
@@ -697,7 +697,7 @@ class AstriaBot:
                         message += f"   Создана: {model_date}\n\n"
                     
                     # Отправляем сообщение с фото
-                    test_image_url = "https://i.ibb.co/QvStjj7/file-72.png"
+                    test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
                     
                     await context.bot.send_photo(
                         chat_id=user_id,
@@ -723,7 +723,7 @@ class AstriaBot:
                               f"Каждая генерация изображений стоит 1 кредит."
                     
                     # Отправляем сообщение с фото
-                    test_image_url = "https://i.ibb.co/QvStjj7/file-72.png"
+                    test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
                     
                     await context.bot.send_photo(
                         chat_id=user_id,
@@ -897,7 +897,7 @@ class AstriaBot:
         try:
             if status == "completed" and images:
                 # Отправляем изображения пользователю
-                await self.send_images_to_user(telegram_id, images)
+                await self.send_generated_images(update, context, images)
                 logger.info(f"Отправлены изображения пользователю {telegram_id} для промпта {prompt_id}")
             elif status == "completed" and not images:
                 await self.application.bot.send_message(
@@ -913,280 +913,6 @@ class AstriaBot:
         except Exception as e:
             logger.error(f"Ошибка при отправке уведомления пользователю {telegram_id}: {e}")
 
-    async def send_images_to_user(self, telegram_id: int, images: List[str]) -> None:
-        """Отправка изображений пользователю"""
-        try:
-            # Отправляем сообщение о готовности изображений
-            await self.application.bot.send_message(
-                chat_id=telegram_id, 
-                text=f"✅ Ваши изображения готовы! Отправляю {len(images)} изображений..."
-            )
-            
-            # Отправляем каждое изображение
-            for i, image_url in enumerate(images):
-                try:
-                    await self.application.bot.send_photo(
-                        chat_id=telegram_id,
-                        photo=image_url,
-                        caption=f"Изображение {i+1}/{len(images)}"
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке изображения {i+1}: {e}")
-                    await self.application.bot.send_message(
-                        chat_id=telegram_id, 
-                        text=f"❌ Не удалось отправить изображение {i+1}. URL: {image_url}"
-                    )
-                
-                # Небольшая задержка между отправками
-                await asyncio.sleep(0.5)
-            
-            # Отправляем сообщение о завершении
-            await self.application.bot.send_message(
-                chat_id=telegram_id, 
-                text="✨ Все изображения отправлены! Вы можете сгенерировать еще изображения с помощью команды /generate."
-            )
-        except Exception as e:
-            logger.error(f"Ошибка при отправке изображений пользователю {telegram_id}: {e}")
-            await self.application.bot.send_message(
-                chat_id=telegram_id, 
-                text="❌ Произошла ошибка при отправке изображений. Пожалуйста, попробуйте снова позже."
-            )
-
-    async def start_model_training(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Начало обучения модели"""
-        if not update.effective_user:
-            return
-        
-        user_id = update.effective_user.id
-        username = update.effective_user.username or "Unknown"
-        
-        # Получаем данные пользователя
-        model_name = self.state_manager.get_data(user_id, "model_name")
-        photos = self.state_manager.get_data(user_id, "photos")
-        
-        if not model_name or not photos:
-            logger.warning(f"Пользователь {user_id} попытался начать обучение без необходимых данных: name={bool(model_name)}, photos={len(photos) if photos else 0}")
-            await update.message.reply_text(
-                "❌ Недостаточно данных для обучения модели. Пожалуйста, начните заново с команды /train."
-            )
-            self.state_manager.reset_state(user_id)
-            return
-        
-        # Проверяем количество фотографий
-        if len(photos) < 3:
-            logger.warning(f"Пользователь {user_id} попытался начать обучение с недостаточным количеством фотографий: {len(photos)}")
-            await update.message.reply_text(
-                "❌ Для обучения модели необходимо загрузить не менее 3 фотографий. Пожалуйста, загрузите еще фотографии."
-            )
-            return
-        
-        # Устанавливаем состояние обучения модели
-        self.state_manager.set_state(user_id, UserState.TRAINING_MODEL)
-        
-        logger.info(f"Пользователь {user_id} ({username}) начинает обучение модели '{model_name}' с {len(photos)} фотографиями")
-        
-        # Логируем в Supabase
-        await self.supa_logger.log_model_training_started(user_id, model_name, len(photos))
-        
-        # Отправляем сообщение о начале обучения
-        await update.message.reply_text(
-            f"🔄 Начинаем обучение модели '{model_name}'...\n"
-            f"Это может занять некоторое время. Я сообщу вам, когда модель будет готова."
-        )
-        
-        try:
-            # Отправляем запрос на обучение модели
-            logger.debug(f"Отправка запроса на обучение модели для пользователя {user_id}: name={model_name}, photos={len(photos)}")
-            response = await self.api.train_model(
-                name=model_name,
-                type="woman",  # По умолчанию используем тип "woman"
-                images=photos,
-                telegram_id=user_id
-            )
-            
-            logger.debug(f"Получен ответ на запрос обучения модели: status={response['status']}, data={json.dumps(response['data'], ensure_ascii=False)[:500]}")
-            
-            if response["status"] in (200, 201, 202):
-                # Получаем ID модели из ответа
-                model_id = response["data"].get("modelId")
-                
-                if model_id:
-                    logger.info(f"Успешно создана модель для пользователя {user_id}: model_id={model_id}, name={model_name}")
-                    
-                    # Логируем успех в Supabase
-                    await self.supa_logger.log_model_training_success(user_id, model_name, model_id)
-                    
-                    # Создаем запись о модели в базе данных
-                    model_data = {
-                        "telegram_user_id": user_id,
-                        "model_id": model_id,
-                        "status": "training"
-                    }
-                    db_response = await self.db.create_model(model_data)
-                    logger.debug(f"Запись о модели создана в базе данных: {db_response}")
-                    
-                    # Сбрасываем состояние пользователя
-                    self.state_manager.reset_state(user_id)
-                    
-                    await update.message.reply_text(
-                        f"✅ Модель '{model_name}' успешно отправлена на обучение!\n"
-                        f"ID модели: {model_id}\n\n"
-                        f"Обучение может занять до 30 минут. Я сообщу вам, когда модель будет готова."
-                    )
-                else:
-                    error_msg = "Отсутствует ID модели в ответе API"
-                    logger.error(f"Ошибка при обучении модели для пользователя {user_id}: {error_msg}. Ответ API: {json.dumps(response['data'], ensure_ascii=False)}")
-                    
-                    # Логируем ошибку в Supabase
-                    await self.supa_logger.log_model_training_error(user_id, model_name, error_msg)
-                    
-                    await update.message.reply_text(
-                        "❌ Произошла ошибка при обучении модели. Пожалуйста, попробуйте позже."
-                    )
-                    self.state_manager.reset_state(user_id)
-            else:
-                error_message = response['data'].get('message', response['data'].get('error', 'Неизвестная ошибка'))
-                logger.error(f"Ошибка при обучении модели для пользователя {user_id}: статус {response['status']}, ошибка: {error_message}")
-                logger.error(f"Полный ответ API: {json.dumps(response['data'], ensure_ascii=False)}")
-                
-                # Логируем ошибку в Supabase
-                await self.supa_logger.log_model_training_error(user_id, model_name, error_message)
-                
-                await update.message.reply_text(
-                    f"❌ Произошла ошибка при обучении модели: {error_message}"
-                )
-                self.state_manager.reset_state(user_id)
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Исключение при обучении модели для пользователя {user_id}: {error_msg}", exc_info=True)
-            
-            # Логируем ошибку в Supabase
-            await self.supa_logger.log_model_training_error(user_id, model_name, error_msg)
-            
-            await update.message.reply_text(
-                "❌ Произошла ошибка при обучении модели. Пожалуйста, попробуйте позже."
-            )
-            self.state_manager.reset_state(user_id)
-
-    async def start_image_generation(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Начало генерации изображений"""
-        if not update.effective_user:
-            return
-        
-        user_id = update.effective_user.id
-        username = update.effective_user.username or "Unknown"
-        
-        # Получаем данные пользователя
-        model_id = self.state_manager.get_data(user_id, "model_id")
-        prompt = self.state_manager.get_data(user_id, "prompt")
-        
-        if not model_id or not prompt:
-            logger.warning(f"Пользователь {user_id} попытался начать генерацию без необходимых данных: model_id={bool(model_id)}, prompt={bool(prompt)}")
-            await update.message.reply_text(
-                "❌ Недостаточно данных для генерации изображений. Пожалуйста, начните заново с команды /generate."
-            )
-            self.state_manager.reset_state(user_id)
-            return
-        
-        # Устанавливаем состояние генерации изображений
-        self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)
-        
-        logger.info(f"Пользователь {user_id} ({username}) начинает генерацию изображений с моделью {model_id} и промптом: '{prompt}'")
-        
-        # Логируем в Supabase
-        await self.supa_logger.log_image_generation_started(user_id, model_id, prompt)
-        
-        # Отправляем сообщение о начале генерации
-        await update.message.reply_text(
-            f"🔄 Начинаем генерацию изображений...\n"
-            f"Это может занять некоторое время. Я отправлю вам изображения, когда они будут готовы."
-        )
-        
-        try:
-            # Отправляем запрос на генерацию изображений
-            logger.debug(f"Отправка запроса на генерацию изображений для пользователя {user_id}: model_id={model_id}, prompt='{prompt}'")
-            response = await self.api.generate_images(
-                model_id=model_id,
-                prompt=prompt,
-                num_images=4,  # По умолчанию генерируем 4 изображения
-                telegram_id=user_id,
-                wait=True  # Ожидаем результаты генерации
-            )
-            
-            logger.debug(f"Получен ответ на запрос генерации изображений: status={response['status']}, data={json.dumps(response['data'], ensure_ascii=False)[:500] if len(json.dumps(response['data'], ensure_ascii=False)) > 500 else json.dumps(response['data'], ensure_ascii=False)}")
-            
-            if response["status"] in (200, 202):
-                # Получаем ID промпта из ответа
-                prompt_id = response["data"].get("promptId")
-                
-                if prompt_id:
-                    logger.info(f"Успешно создан промпт для пользователя {user_id}: prompt_id={prompt_id}, model_id={model_id}")
-                    
-                    # Создаем запись о промпте в базе данных
-                    prompt_data = {
-                        "telegram_user_id": user_id,
-                        "model_id": model_id,
-                        "prompt": prompt,
-                        "prompt_id": prompt_id,
-                        "status": response["data"].get("status", "processing")
-                    }
-                    # Добавляем список URL в данные промпта
-                    prompt_data["file_urls"] = json.dumps(file_paths)
-
-                    # Создаем запись о промпте в базе данных
-                    db_response = await self.db.create_prompt(prompt_data)
-                    logger.debug(f"Запись о промпте создана в базе данных: {db_response}")
-                    
-                    # Если изображения уже готовы, отправляем их пользователю
-                    images = response["data"].get("images", [])
-                    if images:
-                        logger.info(f"Получены готовые изображения для пользователя {user_id}: {len(images)} шт.")
-                        
-                        # Логируем успех в Supabase
-                        await self.supa_logger.log_image_generation_success(user_id, model_id, prompt_id, len(images))
-                        
-                        await self.send_generated_images(update, context, images)
-                        self.state_manager.reset_state(user_id)
-                    else:
-                        logger.info(f"Изображения для пользователя {user_id} еще не готовы, статус: {response['data'].get('status', 'unknown')}")
-                        await update.message.reply_text(
-                            f"⏳ Изображения еще генерируются. Я отправлю их вам, когда они будут готовы."
-                        )
-                else:
-                    error_msg = "Отсутствует ID промпта в ответе API"
-                    logger.error(f"Ошибка при генерации изображений для пользователя {user_id}: {error_msg}. Ответ API: {json.dumps(response['data'], ensure_ascii=False)}")
-                    
-                    # Логируем ошибку в Supabase
-                    await self.supa_logger.log_image_generation_error(user_id, model_id, prompt, error_msg)
-                    
-                    await update.message.reply_text(
-                        "❌ Произошла ошибка при генерации изображений. Пожалуйста, попробуйте позже."
-                    )
-                    self.state_manager.reset_state(user_id)
-            else:
-                error_message = response['data'].get('message', response['data'].get('error', 'Неизвестная ошибка'))
-                logger.error(f"Ошибка при генерации изображений для пользователя {user_id}: статус {response['status']}, ошибка: {error_message}")
-                logger.error(f"Полный ответ API: {json.dumps(response['data'], ensure_ascii=False)}")
-                
-                # Логируем ошибку в Supabase
-                await self.supa_logger.log_image_generation_error(user_id, model_id, prompt, error_message)
-                
-                await update.message.reply_text(
-                    f"❌ Произошла ошибка при генерации изображений: {error_message}"
-                )
-                self.state_manager.reset_state(user_id)
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Исключение при генерации изображений для пользователя {user_id}: {error_msg}", exc_info=True)
-            
-            # Логируем ошибку в Supabase
-            await self.supa_logger.log_image_generation_error(user_id, model_id, prompt, error_msg)
-            
-            await update.message.reply_text(
-                "❌ Произошла ошибка при генерации изображений. Пожалуйста, попробуйте позже."
-            )
-            self.state_manager.reset_state(user_id)
-
     async def send_generated_images(self, update: Update, context: ContextTypes.DEFAULT_TYPE, images: List[str]) -> None:
         """Отправка сгенерированных изображений пользователю"""
         if not update.effective_user:
@@ -1195,8 +921,8 @@ class AstriaBot:
         user_id = update.effective_user.id
         logger.info(f"Начало отправки сгенерированных изображений пользователю {user_id}")
         
-        # Заменяем URL изображений на наш фиксированный URL для тестирования
-        test_image_url = "https://i.ibb.co/QvStjj7/file-72.png"
+        # Заменяем URL изображений на GitHub ссылку
+        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
         
         # Создаем клавиатуру с кнопками для дальнейших действий
         keyboard = [
