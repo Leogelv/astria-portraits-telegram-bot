@@ -1131,8 +1131,8 @@ class AstriaBot:
         application.run_webhook(
             listen="0.0.0.0",
             port=port,
-            url_path=TELEGRAM_BOT_TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}",
+            url_path="webhook",
+            webhook_url=f"{WEBHOOK_URL}/webhook",
             secret_token=WEBHOOK_SECRET
         )
         

@@ -6,8 +6,8 @@ TELEGRAM_BOT_TOKEN = "7841199395:AAFm779B_P_RaeNSjd0H7v-SNWBD0QMi2Z4"
 WEBHOOK_URL = "https://astria-portraits-telegram-bot-production.up.railway.app"
 WEBHOOK_SECRET = "verySecretWebhookKey123"
 
-# Формируем URL для установки вебхука
-webhook_full_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
+# Формируем URL для установки вебхука без токена в пути
+webhook_full_url = f"{WEBHOOK_URL}/webhook"
 set_webhook_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
 
 # Параметры для установки вебхука
