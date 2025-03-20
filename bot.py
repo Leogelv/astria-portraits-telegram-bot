@@ -131,11 +131,11 @@ class AstriaBot:
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
         
-        # Создаем клавиатуру с кнопками для основных команд
+        # Создаем клавиатуру с кнопками для команд
         keyboard = [
             [
-                InlineKeyboardButton("🖼 Обучить модель", callback_data="cmd_train"),
-                InlineKeyboardButton("✨ Генерировать изображения", callback_data="cmd_generate")
+                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
             ],
             [
                 InlineKeyboardButton("📋 Мои модели", callback_data="cmd_models"),
@@ -144,21 +144,21 @@ class AstriaBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Используем URL изображения для приветствия (заглушка, нужно заменить на реальный URL)
-        image_url = "https://www.astria.ai/assets/og-image.png"
+        # URL для фото приветствия
+        welcome_photo_url = "https://www.astria.ai/assets/og-image.png"
         
         try:
-            # Отправляем приветственное сообщение с фото и кнопками
+            # Отправляем фото с приветственным сообщением и кнопками
             await context.bot.send_photo(
                 chat_id=user_id,
-                photo=image_url,
+                photo=welcome_photo_url,
                 caption=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
         except Exception as e:
-            logger.error(f"Ошибка при отправке приветственного сообщения с фото: {e}")
-            # Запасной вариант - просто текстовое сообщение
-            await update.message.reply_text(WELCOME_MESSAGE)
+            logger.error(f"Ошибка при отправке приветственного фото: {e}")
+            # Если что-то пошло не так, отправляем текстовое сообщение
+            await update.message.reply_text(WELCOME_MESSAGE, reply_markup=reply_markup)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /help"""
@@ -188,21 +188,21 @@ class AstriaBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Используем URL изображения для инструкций (заглушка)
-        image_url = "https://www.astria.ai/assets/og-image.png"
+        # URL для фото с инструкциями
+        instructions_photo_url = "https://www.astria.ai/assets/og-image.png"
         
         try:
-            # Отправляем сообщение с инструкциями и фото
+            # Отправляем фото с инструкциями и кнопкой отмены
             await context.bot.send_photo(
                 chat_id=user_id,
-                photo=image_url,
+                photo=instructions_photo_url,
                 caption=UPLOAD_PHOTOS_MESSAGE,
                 reply_markup=reply_markup
             )
         except Exception as e:
-            logger.error(f"Ошибка при отправке сообщения с инструкциями и фото: {e}")
-            # Запасной вариант - просто текстовое сообщение
-            await update.message.reply_text(UPLOAD_PHOTOS_MESSAGE)
+            logger.error(f"Ошибка при отправке фото с инструкциями: {e}")
+            # Если что-то пошло не так, отправляем текстовое сообщение
+            await update.message.reply_text(UPLOAD_PHOTOS_MESSAGE, reply_markup=reply_markup)
 
     async def generate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /generate"""
@@ -1091,8 +1091,9 @@ class AstriaBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Отправляем сообщение о готовности изображений
-        await update.message.reply_text(
-            f"✅ Изображения успешно сгенерированы!\n"
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"✅ Изображения успешно сгенерированы!\n"
             f"Количество изображений: {len(images)}\n\n"
             f"Отправляю ваши изображения...",
             reply_markup=reply_markup
@@ -1110,15 +1111,17 @@ class AstriaBot:
                 ]
                 img_reply_markup = InlineKeyboardMarkup(img_keyboard)
                 
-                await update.message.reply_photo(
+                await context.bot.send_photo(
+                    chat_id=user_id,
                     photo=image_url,
                     caption=f"✨ Изображение #{i} из {len(images)}",
                     reply_markup=img_reply_markup
                 )
             except Exception as e:
                 logger.error(f"Ошибка при отправке изображения {i}: {e}")
-                await update.message.reply_text(
-                    f"❌ Не удалось отправить изображение #{i}. URL: {image_url}"
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"❌ Не удалось отправить изображение #{i}. URL: {image_url}"
                 )
 
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
