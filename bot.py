@@ -393,7 +393,9 @@ class AstriaBot:
             self.media_groups[media_group_id] = {
                 "user_id": user_id,
                 "file_paths": [],
-                "last_update": datetime.now().timestamp()
+                "last_update": datetime.now().timestamp(),
+                "being_processed": False,  # Флаг обработки
+                "processing_task": None    # Ссылка на активную задачу
             }
             logger.info(f"Создана новая медиагруппа {media_group_id} для пользователя {user_id}")
             
@@ -415,12 +417,32 @@ class AstriaBot:
             self.media_groups[media_group_id]["last_update"] = datetime.now().timestamp()
             logger.info(f"Добавлен URL фотографии в медиагруппу {media_group_id}: {file_path}")
         
-        # Если это последняя фотография в медиагруппе, отправляем весь список на сервер
-        # Проверяем с таймаутом, так как Telegram не сообщает, когда закончилась медиагруппа
+        # Если есть активная задача обработки, отменяем ее
+        if self.media_groups[media_group_id].get("processing_task"):
+            try:
+                self.media_groups[media_group_id]["processing_task"].cancel()
+                logger.debug(f"Отменена предыдущая задача обработки для медиагруппы {media_group_id}")
+            except Exception as e:
+                logger.error(f"Ошибка при отмене задачи: {e}")
+        
+        # Функция отложенной обработки медиагруппы
         async def process_media_group_later():
             await asyncio.sleep(2)  # Ждем 2 секунды после последнего обновления
             
-            # Если с момента последнего обновления прошло более 2 секунд, считаем, что медиагруппа завершена
+            # Проверяем, существует ли еще медиагруппа и не обрабатывается ли она уже
+            if media_group_id not in self.media_groups:
+                logger.debug(f"Медиагруппа {media_group_id} уже удалена, отмена обработки")
+                return
+            
+            if self.media_groups[media_group_id]["being_processed"]:
+                logger.debug(f"Медиагруппа {media_group_id} уже обрабатывается, отмена дублирующей обработки")
+                return
+            
+            # Отмечаем группу как обрабатываемую
+            self.media_groups[media_group_id]["being_processed"] = True
+            logger.info(f"Начинаем обработку медиагруппы {media_group_id}")
+            
+            # Если с момента последнего обновления прошло более 1.5 секунд, считаем, что медиагруппа завершена
             if datetime.now().timestamp() - self.media_groups[media_group_id]["last_update"] > 1.5:
                 file_paths = self.media_groups[media_group_id]["file_paths"]
                 logger.info(f"Обработка завершенной медиагруппы {media_group_id} с {len(file_paths)} фотографиями")
@@ -461,9 +483,12 @@ class AstriaBot:
                 
                 # Очищаем медиагруппу из словаря
                 del self.media_groups[media_group_id]
+                logger.info(f"Медиагруппа {media_group_id} обработана и удалена из словаря")
         
-        # Запускаем задачу обработки медиагруппы
-        asyncio.create_task(process_media_group_later())
+        # Запускаем задачу обработки медиагруппы и сохраняем ссылку на нее
+        task = asyncio.create_task(process_media_group_later())
+        self.media_groups[media_group_id]["processing_task"] = task
+        logger.debug(f"Создана новая задача обработки для медиагруппы {media_group_id}")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик текстовых сообщений"""
