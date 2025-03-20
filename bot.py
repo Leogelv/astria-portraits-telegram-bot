@@ -381,39 +381,89 @@ class AstriaBot:
         if not update.effective_message:
             return
 
-        media_group = update.effective_message.media_group_id
-        if not media_group:
+        media_group_id = update.effective_message.media_group_id
+        if not media_group_id:
             return
+            
+        user_id = update.effective_user.id
+        logger.info(f"Получена фотография из медиагруппы {media_group_id} от пользователя {user_id}")
 
-        # Получаем ID всех файлов в медиагруппе
-        file_ids = [media.file_id for media in update.effective_message.photo]
-
-        # Получаем пути к файлам
-        file_paths = []
-        for file_id in file_ids:
-            file = await context.bot.get_file(file_id)
-            file_paths.append(file.file_path)
-
-        # Формируем данные для отправки
-        model_name = "example_model_name"  # Замените на реальное имя модели
-        model_type = "example_model_type"  # Замените на реальный тип модели
-        data = {
-            "model_name": model_name,
-            "model_type": model_type,
-            "file_paths": file_paths
-        }
-
-        # Отправляем данные на вебхук
-        async with aiohttp.ClientSession() as session:
-            async with session.post('https://n8n2.supashkola.ru/webhook/start_finetune', json=data) as response:
-                if response.status == 200:
-                    logger.info("Данные успешно отправлены на вебхук")
-                else:
-                    logger.error(f"Ошибка при отправке данных на вебхук: {response.status}")
-
-        # Логируем событие - ОТКЛЮЧЕНО
-        # await self.supa_logger.create_log(LogEventType.BOT_MEDIA_GROUP_RECEIVED, data)
-        logger.info(f"Получена медиагруппа с {len(file_paths)} файлами")
+        # Проверяем, есть ли уже эта медиагруппа в словаре
+        if media_group_id not in self.media_groups:
+            self.media_groups[media_group_id] = {
+                "user_id": user_id,
+                "file_paths": [],
+                "last_update": datetime.now().timestamp()
+            }
+            logger.info(f"Создана новая медиагруппа {media_group_id} для пользователя {user_id}")
+            
+            # Отправляем сообщение пользователю о начале сбора фотографий
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="📸 Получаю ваши фотографии. Пожалуйста, подождите..."
+            )
+        
+        # Получаем самый большой размер фотографии
+        photo = update.effective_message.photo[-1]  # Последний элемент в списке - самый большой размер
+        file = await context.bot.get_file(photo.file_id)
+        file_path = file.file_path
+        
+        # Проверяем, не добавлен ли уже этот file_path
+        if file_path not in self.media_groups[media_group_id]["file_paths"]:
+            # Добавляем путь к файлу в список
+            self.media_groups[media_group_id]["file_paths"].append(file_path)
+            self.media_groups[media_group_id]["last_update"] = datetime.now().timestamp()
+            logger.info(f"Добавлен URL фотографии в медиагруппу {media_group_id}: {file_path}")
+        
+        # Если это последняя фотография в медиагруппе, отправляем весь список на сервер
+        # Проверяем с таймаутом, так как Telegram не сообщает, когда закончилась медиагруппа
+        async def process_media_group_later():
+            await asyncio.sleep(2)  # Ждем 2 секунды после последнего обновления
+            
+            # Если с момента последнего обновления прошло более 2 секунд, считаем, что медиагруппа завершена
+            if datetime.now().timestamp() - self.media_groups[media_group_id]["last_update"] > 1.5:
+                file_paths = self.media_groups[media_group_id]["file_paths"]
+                logger.info(f"Обработка завершенной медиагруппы {media_group_id} с {len(file_paths)} фотографиями")
+                
+                # Формируем данные для отправки
+                model_name = "example_model_name"  # Заменить на реальное имя модели
+                model_type = "example_model_type"  # Заменить на реальный тип модели
+                data = {
+                    "model_name": model_name,
+                    "model_type": model_type,
+                    "file_paths": file_paths
+                }
+                
+                # Отправляем данные на вебхук
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post('https://n8n2.supashkola.ru/webhook/start_finetune', json=data) as response:
+                            if response.status == 200:
+                                logger.info(f"Данные медиагруппы {media_group_id} успешно отправлены на вебхук: {len(file_paths)} фотографий")
+                                
+                                # Отправляем сообщение об успешной обработке
+                                await context.bot.send_message(
+                                    chat_id=user_id,
+                                    text=f"✅ Все фотографии ({len(file_paths)}) успешно обработаны и отправлены на сервер."
+                                )
+                            else:
+                                logger.error(f"Ошибка при отправке данных медиагруппы на вебхук: {response.status}")
+                                await context.bot.send_message(
+                                    chat_id=user_id,
+                                    text=f"❌ Ошибка при отправке фотографий на сервер. Пожалуйста, попробуйте позже."
+                                )
+                except Exception as e:
+                    logger.error(f"Исключение при отправке данных медиагруппы на вебхук: {e}")
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"❌ Произошла ошибка при обработке фотографий: {str(e)}"
+                    )
+                
+                # Очищаем медиагруппу из словаря
+                del self.media_groups[media_group_id]
+        
+        # Запускаем задачу обработки медиагруппы
+        asyncio.create_task(process_media_group_later())
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик текстовых сообщений"""
