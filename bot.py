@@ -31,6 +31,8 @@ from config import (
     WEBHOOK_URL,
     WEBHOOK_SECRET,
     API_BASE_URL,
+    WELCOME_IMAGE_URL,
+    INSTRUCTIONS_IMAGE_URL,
 )
 from database import DatabaseManager
 from api_client import ApiClient
@@ -147,14 +149,12 @@ class AstriaBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # URL для фото приветствия - используем прямую ссылку на изображение
-        welcome_photo_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-        
+        # URL для фото приветствия - используем константу из config.py
         try:
-            # Отправляем фото с приветственным сообщением и кнопками
+            # Отправляем фото с приветствием и кнопками
             await context.bot.send_photo(
                 chat_id=user_id,
-                photo=welcome_photo_url,
+                photo=WELCOME_IMAGE_URL,
                 caption=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
@@ -877,14 +877,11 @@ class AstriaBot:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # URL для фото с инструкциями
-            instructions_photo_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-            
-            # Отправляем инструкции по загрузке фотографий
+            # Отправляем инструкции по загрузке фотографий с использованием константы из config.py
             try:
                 await context.bot.send_photo(
                     chat_id=user_id,
-                    photo=instructions_photo_url,
+                    photo=INSTRUCTIONS_IMAGE_URL,
                     caption=UPLOAD_PHOTOS_MESSAGE,
                     reply_markup=reply_markup
                 )

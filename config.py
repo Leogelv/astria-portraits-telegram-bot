@@ -49,6 +49,11 @@ ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 if ADMIN_TELEGRAM_ID:
     ADMIN_TELEGRAM_ID = int(ADMIN_TELEGRAM_ID)
 
+# URL изображений
+WELCOME_IMAGE_URL = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/bot_image.png"
+INSTRUCTIONS_IMAGE_URL = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/bot_image.png"
+PROCESSING_IMAGE_URL = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/bot_image.png"
+
 # Константы
 MAX_PHOTOS = 4  # Максимальное количество фотографий для обучения модели
 DEFAULT_NUM_IMAGES = 4  # Количество изображений для генерации по умолчанию
