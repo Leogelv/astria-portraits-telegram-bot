@@ -784,8 +784,50 @@ class AstriaBot:
                 
                 elif command == "start":
                     logger.info(f"Начинаю обработку команды start из callback для пользователя {user_id}")
-                    # Вызываем существующий метод start_command с нужными параметрами
-                    await self.start_command(update, context)
+                    
+                    # Сбрасываем состояние пользователя
+                    self.state_manager.reset_state(user_id)
+                    
+                    # Создаем клавиатуру с кнопками для команд
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                            InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
+                        ],
+                        [
+                            InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Редактируем текущее сообщение
+                    try:
+                        # Проверяем, есть ли caption в сообщении
+                        if hasattr(query.message, 'caption') and query.message.caption is not None:
+                            await query.edit_message_caption(
+                                caption=WELCOME_MESSAGE,
+                                reply_markup=reply_markup
+                            )
+                        else:
+                            # Если caption нет, меняем текст
+                            await query.edit_message_text(
+                                text=WELCOME_MESSAGE,
+                                reply_markup=reply_markup
+                            )
+                        logger.info(f"Обновлено сообщение с главным меню для пользователя {user_id}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при обновлении сообщения в cmd_start: {e}", exc_info=True)
+                        # В случае ошибки отправляем новое фото с меню
+                        try:
+                            await context.bot.send_photo(
+                                chat_id=user_id,
+                                photo=WELCOME_IMAGE_URL,
+                                caption=WELCOME_MESSAGE,
+                                reply_markup=reply_markup
+                            )
+                            logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
+                        except Exception as send_err:
+                            logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
                 
                 elif command == "generate":
                     logger.info(f"Начинаю обработку команды generate из callback для пользователя {user_id}")
