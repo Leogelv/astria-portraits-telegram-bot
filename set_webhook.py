@@ -14,6 +14,7 @@ set_webhook_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
 webhook_params = {
     "url": webhook_full_url,
     "secret_token": WEBHOOK_SECRET,
+    "allowed_updates": ["message", "callback_query", "edited_message", "channel_post", "edited_channel_post", "inline_query", "chosen_inline_result", "shipping_query", "pre_checkout_query", "poll", "poll_answer", "my_chat_member", "chat_member", "chat_join_request"],
 }
 
 # Отправляем запрос на установку вебхука

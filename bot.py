@@ -245,8 +245,20 @@ class AstriaBot:
         user_id = update.effective_user.id
         logger.info(f"Пользователь {user_id} запросил список моделей")
         
-        # Получаем модели пользователя
-        models = await self.db.get_user_models(user_id)
+        # Получаем модели пользователя через API запрос
+        try:
+            data = {"telegram_id": user_id}
+            async with aiohttp.ClientSession() as session:
+                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                    if response.status == 200:
+                        models = await response.json()
+                        logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
+                    else:
+                        logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                        models = []
+        except Exception as e:
+            logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
+            models = []
         
         if not models:
             await update.message.reply_text(
@@ -258,15 +270,13 @@ class AstriaBot:
         message = "📋 Ваши модели:\n\n"
         
         for model in models:
-            # Получаем детали модели
-            model_details = await self.db.get_model_details(model["model_id"])
-            
-            model_name = model_details.get("name", f"Модель #{model['model_id']}") if model_details else f"Модель #{model['model_id']}"
-            model_status = model["status"]
-            model_date = model["created_at"].split("T")[0] if isinstance(model["created_at"], str) else "Неизвестно"
+            model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
+            model_status = model.get("status", "неизвестно")
+            model_date = model.get("created_at", "").split("T")[0] if isinstance(model.get("created_at", ""), str) else "Неизвестно"
+            model_id = model.get("model_id", "неизвестно")
             
             message += f"🔹 {model_name}\n"
-            message += f"   ID: {model['model_id']}\n"
+            message += f"   ID: {model_id}\n"
             message += f"   Статус: {model_status}\n"
             message += f"   Создана: {model_date}\n\n"
         
@@ -646,8 +656,20 @@ class AstriaBot:
                 elif command == "generate":
                     logger.info(f"Начинаю обработку команды generate из callback для пользователя {user_id}")
                     
-                    # Получаем модели пользователя
-                    models = await self.db.get_user_models(user_id)
+                    # Получаем модели пользователя через API запрос
+                    try:
+                        data = {"telegram_id": user_id}
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                                if response.status == 200:
+                                    models = await response.json()
+                                    logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
+                                else:
+                                    logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                                    models = []
+                    except Exception as e:
+                        logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
+                        models = []
                     
                     if not models:
                         # Редактируем текущее сообщение
@@ -668,12 +690,12 @@ class AstriaBot:
                     # Создаем клавиатуру с моделями
                     keyboard = []
                     for model in models:
-                        # Получаем детали модели
-                        model_details = await self.db.get_model_details(model["model_id"])
-                        model_name = model_details.get("name", f"Модель #{model['model_id']}") if model_details else f"Модель #{model['model_id']}"
+                        # Получаем данные модели из API ответа
+                        model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
+                        model_id = model.get("model_id", "unknown")
                         
                         keyboard.append([
-                            InlineKeyboardButton(model_name, callback_data=f"model_{model['model_id']}")
+                            InlineKeyboardButton(model_name, callback_data=f"model_{model_id}")
                         ])
                     
                     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -714,8 +736,20 @@ class AstriaBot:
                 elif command == "models":
                     logger.info(f"Начинаю обработку команды models из callback для пользователя {user_id}")
                     
-                    # Получаем модели пользователя
-                    models = await self.db.get_user_models(user_id)
+                    # Получаем модели пользователя через API запрос
+                    try:
+                        data = {"telegram_id": user_id}
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                                if response.status == 200:
+                                    models = await response.json()
+                                    logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
+                                else:
+                                    logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                                    models = []
+                    except Exception as e:
+                        logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
+                        models = []
                     
                     if not models:
                         try:
@@ -735,15 +769,13 @@ class AstriaBot:
                     message = "📋 Ваши модели:\n\n"
                     
                     for model in models:
-                        # Получаем детали модели
-                        model_details = await self.db.get_model_details(model["model_id"])
-                        
-                        model_name = model_details.get("name", f"Модель #{model['model_id']}") if model_details else f"Модель #{model['model_id']}"
-                        model_status = model["status"]
-                        model_date = model["created_at"].split("T")[0] if isinstance(model["created_at"], str) else "Неизвестно"
+                        model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
+                        model_status = model.get("status", "неизвестно")
+                        model_date = model.get("created_at", "").split("T")[0] if isinstance(model.get("created_at", ""), str) else "Неизвестно"
+                        model_id = model.get("model_id", "неизвестно")
                         
                         message += f"🔹 {model_name}\n"
-                        message += f"   ID: {model['model_id']}\n"
+                        message += f"   ID: {model_id}\n"
                         message += f"   Статус: {model_status}\n"
                         message += f"   Создана: {model_date}\n\n"
                     
@@ -1276,6 +1308,77 @@ class AstriaBot:
                 )
             except Exception as e:
                 logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {e}")
+
+    async def start_image_generation(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Запуск генерации изображений"""
+        if not update.effective_user:
+            return
+        
+        user_id = update.effective_user.id
+        logger.info(f"Запуск генерации изображений для пользователя {user_id}")
+        
+        # Получаем данные из состояния пользователя
+        model_id = self.state_manager.get_data(user_id, "model_id")
+        prompt = self.state_manager.get_data(user_id, "prompt")
+        
+        if not model_id or not prompt:
+            await update.message.reply_text("Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью команды /generate.")
+            self.state_manager.reset_state(user_id)
+            return
+        
+        # Создаем данные для запроса
+        data = {
+            "model_id": model_id,
+            "prompt": prompt,
+            "telegram_id": user_id,
+            "num_images": 4  # Количество изображений для генерации
+        }
+        
+        # Отправляем статусное сообщение
+        status_message = await update.message.reply_text("⏳ Отправка запроса на генерацию изображений...")
+        
+        # Отправляем запрос на генерацию
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post('https://n8n2.supashkola.ru/webhook/generate_tg', json=data) as response:
+                    response_text = await response.text()
+                    if response.status == 200:
+                        logger.info(f"Запрос на генерацию изображений для пользователя {user_id} успешно отправлен")
+                        try:
+                            response_data = await response.json()
+                            prompt_id = response_data.get("prompt_id", "unknown")
+                            logger.info(f"Получен ID промпта: {prompt_id}")
+                            
+                            # Обновляем статусное сообщение
+                            await context.bot.edit_message_text(
+                                chat_id=user_id,
+                                message_id=status_message.message_id,
+                                text=f"✅ Запрос на генерацию изображений успешно отправлен! ID промпта: {prompt_id}\n\nМы уведомим вас, когда изображения будут готовы."
+                            )
+                        except json.JSONDecodeError:
+                            logger.error(f"Не удалось декодировать JSON-ответ: {response_text}")
+                            await context.bot.edit_message_text(
+                                chat_id=user_id,
+                                message_id=status_message.message_id,
+                                text="✅ Запрос на генерацию изображений успешно отправлен!\n\nМы уведомим вас, когда изображения будут готовы."
+                            )
+                    else:
+                        logger.error(f"Ошибка при отправке запроса на генерацию: {response.status}, {response_text}")
+                        await context.bot.edit_message_text(
+                            chat_id=user_id,
+                            message_id=status_message.message_id,
+                            text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {response.status}. Пожалуйста, попробуйте еще раз."
+                        )
+        except Exception as e:
+            logger.error(f"Исключение при отправке запроса на генерацию: {e}", exc_info=True)
+            await context.bot.edit_message_text(
+                chat_id=user_id,
+                message_id=status_message.message_id,
+                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {str(e)}. Пожалуйста, попробуйте еще раз."
+            )
+        
+        # Сбрасываем состояние пользователя
+        self.state_manager.reset_state(user_id)
 
     def run(self) -> None:
         """Запуск бота"""
