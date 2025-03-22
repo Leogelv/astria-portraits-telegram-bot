@@ -105,6 +105,8 @@ class CallbackHandler:
                 await self._handle_cmd_credits(update, context, query, user_id)
             elif command == "models":
                 await self._handle_cmd_models(update, context, query, user_id)
+            elif command == "video":
+                await self._handle_cmd_video(update, context, query, user_id)
             else:
                 logger.warning(f"Неизвестная команда в callback: {command}")
                 await query.answer(f"Неизвестная команда: {command}")
@@ -113,7 +115,7 @@ class CallbackHandler:
             try:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"❌ Произошла ошибка при выполнении команды. Пожалуйста, попробуйте еще раз или используйте команду /start для перезапуска бота."
+                    text=f"❌ Произошла ошибка при выполнении команды. "
                 )
             except Exception as send_error:
                 logger.error(f"Не удалось отправить сообщение об ошибке: {send_error}", exc_info=True)
@@ -989,3 +991,59 @@ class CallbackHandler:
                 logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
             except Exception as send_err:
                 logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
+    
+    async def _handle_cmd_video(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
+        """
+        Обработка команды video из callback
+        
+        Args:
+            update (Update): Объект обновления Telegram
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback_query
+            user_id (int): ID пользователя
+        """
+        logger.info(f"Начинаю обработку команды video из callback для пользователя {user_id}")
+        
+        message = "🎬 Функция создания видео находится в разработке.\n\nМы сообщим вам, когда эта функция станет доступна!"
+        
+        # Создаем клавиатуру с кнопкой "На главную"
+        keyboard = [
+            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Пробуем изменить текущее сообщение
+        try:
+            # Проверяем, есть ли caption в сообщении
+            if hasattr(query.message, 'caption') and query.message.caption is not None:
+                await query.edit_message_caption(
+                    caption=message,
+                    reply_markup=reply_markup
+                )
+            else:
+                # Если caption нет, меняем текст
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup
+                )
+            logger.info(f"Обновлено сообщение с информацией о video-функции для пользователя {user_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении сообщения с информацией о video-функции: {e}", exc_info=True)
+            
+            # Если не получилось изменить текущее сообщение, отправляем новое
+            try:
+                await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=WELCOME_IMAGE_URL,
+                    caption=message,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлена информация о video-функции пользователю {user_id}")
+            except Exception as send_err:
+                logger.error(f"Ошибка при отправке информации о video-функции: {send_err}", exc_info=True)
+                # Если не удалось отправить фото, отправляем текстовое сообщение
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    reply_markup=reply_markup
+                )
