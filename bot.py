@@ -384,7 +384,7 @@ class AstriaBot:
                     text=f"✅ Все фотографии ({photos_count}) успешно загружены!\n\n"
                          f"Данные для обучения модели:\n"
                          f"Название: {model_name}\n"
-                         f"Тип: {'Мужчина' if model_type == 'man' else 'Женщина'}\n"
+                         f"Тип: {'Мужчина' if model_type == 'male' else 'Женщина'}\n"
                          f"Количество фотографий: {photos_count}\n\n"
                          f"Начать обучение модели?",
                     reply_markup=reply_markup
