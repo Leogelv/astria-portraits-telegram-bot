@@ -686,12 +686,34 @@ class AstriaBot:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Отправляем сообщение с подтверждением и кнопкой для запуска генерации
-            await update.message.reply_text(
-                f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
-                reply_markup=reply_markup
-            )
-            logger.info(f"Отправлено сообщение с подтверждением промпта и кнопкой для запуска генерации пользователю {user_id}")
+            # Получаем и сохраняем message_id сообщения с запросом промпта
+            prompt_message_id = self.state_manager.get_data(user_id, "prompt_message_id")
+            
+            if prompt_message_id:
+                # Редактируем сообщение с запросом промпта вместо отправки нового
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=user_id,
+                        message_id=prompt_message_id,
+                        text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Обновлено сообщение с подтверждением промпта для пользователя {user_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка при обновлении сообщения с промптом: {e}", exc_info=True)
+                    # В случае ошибки отправляем новое сообщение
+                    await update.message.reply_text(
+                        f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлено новое сообщение с подтверждением промпта пользователю {user_id}")
+            else:
+                # Если нет сохраненного ID сообщения, отправляем новое
+                await update.message.reply_text(
+                    f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id}")
             
             # Обновляем состояние
             self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)
@@ -1112,27 +1134,33 @@ class AstriaBot:
                 try:
                     # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
                     if hasattr(query.message, 'caption') and query.message.caption is not None:
-                        await query.edit_message_caption(
+                        sent_message = await query.edit_message_caption(
                             caption=ENTER_PROMPT_MESSAGE,
                             reply_markup=reply_markup
                         )
+                        # Сохраняем ID сообщения для последующего редактирования
+                        self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
                         logger.info(f"Обновлена подпись с запросом промпта для пользователя {user_id}")
                     else:
                         # Если caption нет, меняем текст
-                        await query.edit_message_text(
+                        sent_message = await query.edit_message_text(
                             text=ENTER_PROMPT_MESSAGE,
                             reply_markup=reply_markup
                         )
+                        # Сохраняем ID сообщения для последующего редактирования
+                        self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
                         logger.info(f"Отправлен запрос на ввод промпта пользователю {user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка при обновлении сообщения с запросом промпта: {e}", exc_info=True)
                     try:
                         # Отправляем новое сообщение с запросом промпта
-                        await context.bot.send_message(
+                        sent_message = await context.bot.send_message(
                             chat_id=user_id,
                             text=ENTER_PROMPT_MESSAGE,
                             reply_markup=reply_markup
                         )
+                        # Сохраняем ID нового сообщения
+                        self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
                         logger.info(f"Отправлено новое сообщение с запросом промпта пользователю {user_id}")
                     except Exception as send_error:
                         logger.error(f"Не удалось отправить сообщение с запросом промпта: {send_error}", exc_info=True)
@@ -1251,15 +1279,20 @@ class AstriaBot:
                     text="Пожалуйста, введите новый промпт для генерации изображений:",
                     reply_markup=reply_markup
                 )
+                # Сохраняем ID сообщения для последующего редактирования
+                self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
                 logger.info(f"Отправлен запрос на ввод нового промпта пользователю {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при отправке запроса на ввод нового промпта: {e}", exc_info=True)
                 try:
-                    await context.bot.send_message(
+                    sent_message = await context.bot.send_message(
                         chat_id=user_id,
                         text="Пожалуйста, введите новый промпт для генерации изображений:",
                         reply_markup=reply_markup
                     )
+                    # Сохраняем ID нового сообщения
+                    self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
+                    logger.info(f"Отправлено новое сообщение с запросом редактирования промпта пользователю {user_id}")
                 except Exception as send_error:
                     logger.error(f"Не удалось отправить сообщение с запросом нового промпта: {send_error}", exc_info=True)
         
