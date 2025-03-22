@@ -7,8 +7,6 @@ from datetime import datetime
 import json
 import traceback
 import aiohttp
-import threading
-import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -85,14 +83,9 @@ class AstriaBot:
         
         # Словарь для отслеживания медиагрупп
         self.media_groups = {}
-        # Блокировка для работы с медиагруппами
-        self.media_groups_lock = threading.RLock()
         
         # Инициализируем application как None, позже заполним в run()
         self.application = None
-        
-        # Запускаем периодическую очистку неактивных сессий
-        self.cleanup_task = None
 
     async def register_user(self, user_id: int, username: str, first_name: str, last_name: str) -> None:
         """Регистрация пользователя в базе данных"""
@@ -391,7 +384,7 @@ class AstriaBot:
                     text=f"✅ Все фотографии ({photos_count}) успешно загружены!\n\n"
                          f"Данные для обучения модели:\n"
                          f"Название: {model_name}\n"
-                         f"Тип: {'Мужчина' if model_type == 'male' else 'Женщина'}\n"
+                         f"Тип: {'Мужчина' if model_type == 'man' else 'Женщина'}\n"
                          f"Количество фотографий: {photos_count}\n\n"
                          f"Начать обучение модели?",
                     reply_markup=reply_markup
@@ -415,125 +408,113 @@ class AstriaBot:
         user_id = update.effective_user.id
         logger.info(f"Получена фотография из медиагруппы {media_group_id} от пользователя {user_id}")
 
-        # Используем блокировку для безопасного доступа к словарю медиагрупп
-        with self.media_groups_lock:
-            # Проверяем, есть ли уже эта медиагруппа в словаре
-            if media_group_id not in self.media_groups:
-                self.media_groups[media_group_id] = {
-                    "user_id": user_id,
-                    "file_paths": [],
-                    "last_update": datetime.now().timestamp(),
-                    "being_processed": False,  # Флаг обработки
-                    "processing_task": None,   # Ссылка на активную задачу
-                    "status_message_id": None  # ID сообщения для обновления статуса
-                }
-                logger.info(f"Создана новая медиагруппа {media_group_id} для пользователя {user_id}")
-                
-                # Отправляем сообщение пользователю о начале сбора фотографий
-                status_message = await context.bot.send_message(
-                    chat_id=user_id,
-                    text="📸 Получаю ваши фотографии. Пожалуйста, подождите..."
-                )
-                # Сохраняем ID сообщения для последующего обновления
-                self.media_groups[media_group_id]["status_message_id"] = status_message.message_id
-                logger.info(f"Создано статусное сообщение с ID {status_message.message_id} для медиагруппы {media_group_id}")
+        # Проверяем, есть ли уже эта медиагруппа в словаре
+        if media_group_id not in self.media_groups:
+            self.media_groups[media_group_id] = {
+                "user_id": user_id,
+                "file_paths": [],
+                "last_update": datetime.now().timestamp(),
+                "being_processed": False,  # Флаг обработки
+                "processing_task": None,   # Ссылка на активную задачу
+                "status_message_id": None  # ID сообщения для обновления статуса
+            }
+            logger.info(f"Создана новая медиагруппа {media_group_id} для пользователя {user_id}")
+            
+            # Отправляем сообщение пользователю о начале сбора фотографий
+            status_message = await context.bot.send_message(
+                chat_id=user_id,
+                text="📸 Получаю ваши фотографии. Пожалуйста, подождите..."
+            )
+            # Сохраняем ID сообщения для последующего обновления
+            self.media_groups[media_group_id]["status_message_id"] = status_message.message_id
+            logger.info(f"Создано статусное сообщение с ID {status_message.message_id} для медиагруппы {media_group_id}")
         
         # Получаем самый большой размер фотографии
         photo = update.effective_message.photo[-1]  # Последний элемент в списке - самый большой размер
         file = await context.bot.get_file(photo.file_id)
         file_path = file.file_path
         
-        with self.media_groups_lock:
-            # Проверяем, существует ли еще медиагруппа
-            if media_group_id not in self.media_groups:
-                logger.warning(f"Медиагруппа {media_group_id} исчезла из словаря во время обработки")
-                return
-                
-            # Проверяем, не добавлен ли уже этот file_path
-            if file_path not in self.media_groups[media_group_id]["file_paths"]:
-                # Добавляем путь к файлу в список
-                self.media_groups[media_group_id]["file_paths"].append(file_path)
-            self.media_groups[media_group_id]["last_update"] = datetime.now().timestamp()
-            logger.info(f"Добавлен URL фотографии в медиагруппу {media_group_id}: {file_path}")
-            
-            # Обновляем статусное сообщение с текущим количеством фотографий
+        # Проверяем, не добавлен ли уже этот file_path
+        if file_path not in self.media_groups[media_group_id]["file_paths"]:
+            # Добавляем путь к файлу в список
+            self.media_groups[media_group_id]["file_paths"].append(file_path)
+        self.media_groups[media_group_id]["last_update"] = datetime.now().timestamp()
+        logger.info(f"Добавлен URL фотографии в медиагруппу {media_group_id}: {file_path}")
+        
+        # Обновляем статусное сообщение с текущим количеством фотографий
+        try:
+            status_message_id = self.media_groups[media_group_id]["status_message_id"]
+            if status_message_id:
+                photos_count = len(self.media_groups[media_group_id]["file_paths"])
+                await context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=status_message_id,
+                    text=f"📸 Получено фотографий: {photos_count}. Пожалуйста, подождите..."
+                )
+                logger.debug(f"Обновлено статусное сообщение ({status_message_id}) для медиагруппы {media_group_id}: {photos_count} фото")
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
+        
+        # Если есть активная задача обработки, отменяем ее
+        if self.media_groups[media_group_id].get("processing_task"):
             try:
-                status_message_id = self.media_groups[media_group_id]["status_message_id"]
-                if status_message_id:
-                    photos_count = len(self.media_groups[media_group_id]["file_paths"])
-                    await context.bot.edit_message_text(
-                        chat_id=user_id,
-                        message_id=status_message_id,
-                        text=f"📸 Получено фотографий: {photos_count}. Пожалуйста, подождите..."
-                    )
-                    logger.debug(f"Обновлено статусное сообщение ({status_message_id}) для медиагруппы {media_group_id}: {photos_count} фото")
+                self.media_groups[media_group_id]["processing_task"].cancel()
+                logger.debug(f"Отменена предыдущая задача обработки для медиагруппы {media_group_id}")
             except Exception as e:
-                logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
-            
-            # Если есть активная задача обработки, отменяем ее
-            if self.media_groups[media_group_id].get("processing_task"):
-                try:
-                    self.media_groups[media_group_id]["processing_task"].cancel()
-                    logger.debug(f"Отменена предыдущая задача обработки для медиагруппы {media_group_id}")
-                except Exception as e:
-                    logger.error(f"Ошибка при отмене задачи: {e}")
+                logger.error(f"Ошибка при отмене задачи: {e}")
         
         # Функция отложенной обработки медиагруппы
         async def process_media_group_later():
             await asyncio.sleep(2)  # Ждем 2 секунды после последнего обновления
             
-            with self.media_groups_lock:
-                # Проверяем, существует ли еще медиагруппа и не обрабатывается ли она уже
-                if media_group_id not in self.media_groups:
-                    logger.debug(f"Медиагруппа {media_group_id} уже удалена, отмена обработки")
-                    return
+            # Проверяем, существует ли еще медиагруппа и не обрабатывается ли она уже
+            if media_group_id not in self.media_groups:
+                logger.debug(f"Медиагруппа {media_group_id} уже удалена, отмена обработки")
+                return
+            
+            if self.media_groups[media_group_id]["being_processed"]:
+                logger.debug(f"Медиагруппа {media_group_id} уже обрабатывается, отмена дублирующей обработки")
+                return
+            
+            # Отмечаем группу как обрабатываемую
+            self.media_groups[media_group_id]["being_processed"] = True
+            logger.info(f"Начинаем обработку медиагруппы {media_group_id}")
+            
+            # Если с момента последнего обновления прошло более 1.5 секунд, считаем, что медиагруппа завершена
+            if datetime.now().timestamp() - self.media_groups[media_group_id]["last_update"] > 1.5:
+                file_paths = self.media_groups[media_group_id]["file_paths"]
+                logger.info(f"Обработка завершенной медиагруппы {media_group_id} с {len(file_paths)} фотографиями")
                 
-                if self.media_groups[media_group_id]["being_processed"]:
-                    logger.debug(f"Медиагруппа {media_group_id} уже обрабатывается, отмена дублирующей обработки")
-                    return
-                
-                # Отмечаем группу как обрабатываемую
-                self.media_groups[media_group_id]["being_processed"] = True
-                logger.info(f"Начинаем обработку медиагруппы {media_group_id}")
-                
-                # Если с момента последнего обновления прошло более 1.5 секунд, считаем, что медиагруппа завершена
-                if datetime.now().timestamp() - self.media_groups[media_group_id]["last_update"] > 1.5:
-                    file_paths = self.media_groups[media_group_id]["file_paths"]
-                    logger.info(f"Обработка завершенной медиагруппы {media_group_id} с {len(file_paths)} фотографиями")
-                    
-                    # Создаем кнопки для действий после загрузки фотографий
-                    keyboard = [
-                        [
-                            InlineKeyboardButton("✅ Начать обучение модели", callback_data=f"start_training_{media_group_id}"),
-                            InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
-                        ]
+                # Создаем кнопки для действий после загрузки фотографий
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Начать обучение модели", callback_data=f"start_training_{media_group_id}"),
+                        InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
                     ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    # Обновляем статусное сообщение
-                    status_message_id = self.media_groups[media_group_id]["status_message_id"]
-                    if status_message_id:
-                        try:
-                            await context.bot.edit_message_text(
-                                chat_id=user_id,
-                                message_id=status_message_id,
-                                text=f"✅ Все фотографии ({len(file_paths)}) успешно обработаны.",
-                                reply_markup=reply_markup
-                            )
-                            logger.info(f"Обновлено статусное сообщение ({status_message_id}) для медиагруппы {media_group_id} с кнопками")
-                        except Exception as e:
-                            logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
-                    
-                    # НЕ очищаем медиагруппу из словаря, так как она может понадобиться при нажатии кнопки обучения
-                    logger.info(f"Медиагруппа {media_group_id} обработана и ожидает действий пользователя")
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Обновляем статусное сообщение
+                status_message_id = self.media_groups[media_group_id]["status_message_id"]
+                if status_message_id:
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=user_id,
+                            message_id=status_message_id,
+                            text=f"✅ Все фотографии ({len(file_paths)}) успешно обработаны.",
+                            reply_markup=reply_markup
+                        )
+                        logger.info(f"Обновлено статусное сообщение ({status_message_id}) для медиагруппы {media_group_id} с кнопками")
+                    except Exception as e:
+                        logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
+                
+                # НЕ очищаем медиагруппу из словаря, так как она может понадобиться при нажатии кнопки обучения
+                logger.info(f"Медиагруппа {media_group_id} обработана и ожидает действий пользователя")
         
         # Запускаем задачу обработки медиагруппы и сохраняем ссылку на нее
         task = asyncio.create_task(process_media_group_later())
-        
-        with self.media_groups_lock:
-            if media_group_id in self.media_groups:  # Проверяем, что группа еще существует
-                self.media_groups[media_group_id]["processing_task"] = task
-                logger.debug(f"Создана новая задача обработки для медиагруппы {media_group_id}")
+        self.media_groups[media_group_id]["processing_task"] = task
+        logger.debug(f"Создана новая задача обработки для медиагруппы {media_group_id}")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик текстовых сообщений"""
@@ -574,35 +555,6 @@ class AstriaBot:
             # Устанавливаем состояние выбора типа модели
             self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
         
-        elif state == UserState.ENTERING_MODEL_NAME_FOR_MEDIA_GROUP:
-            # Пользователь вводит название модели для медиагруппы
-            if len(text) > 50:
-                await update.message.reply_text("Название модели слишком длинное (максимум 50 символов). Пожалуйста, введите более короткое название.")
-                return
-            
-            # Сохраняем название модели
-            self.state_manager.set_data(user_id, "model_name", text)
-            
-            # Запрашиваем тип модели
-            keyboard = [
-                [
-                    InlineKeyboardButton("Мужчина", callback_data="mgtype_man"),
-                    InlineKeyboardButton("Женщина", callback_data="mgtype_woman")
-                ],
-                [
-                    InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                f"Название модели: {text}\n\nТеперь выберите тип модели:",
-                reply_markup=reply_markup
-            )
-            
-            # Устанавливаем состояние выбора типа модели для медиагруппы
-            self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE_FOR_MEDIA_GROUP)
-        
         elif state == UserState.ENTERING_PROMPT:
             # Пользователь вводит промпт для генерации изображений
             if len(text) > 500:
@@ -642,65 +594,9 @@ class AstriaBot:
             await query.answer()
         except Exception as e:
             logger.error(f"Ошибка при ответе на callback: {e}")
-
-        # Обработка выбора типа модели для медиагруппы
-        if callback_data.startswith("mgtype_"):
-            try:
-                # Получаем тип модели из callback_data
-                model_type = callback_data.split("_")[1]
-                logger.info(f"Пользователь {user_id} выбрал тип модели для медиагруппы: {model_type}")
-                
-                # Проверяем, в правильном ли состоянии находится пользователь
-                state = self.state_manager.get_state(user_id)
-                if state != UserState.SELECTING_MODEL_TYPE_FOR_MEDIA_GROUP:
-                    logger.warning(f"Пользователь {user_id} выбрал тип модели, но находится в состоянии {state}")
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Произошла ошибка. Пожалуйста, начните процесс заново с помощью команды /train."
-                    )
-                    self.state_manager.reset_state(user_id)
-                    return
-                
-                # Получаем ID медиагруппы из состояния пользователя
-                media_group_id = self.state_manager.get_data(user_id, "media_group_id")
-                if not media_group_id:
-                    logger.error(f"Не найден ID медиагруппы в состоянии пользователя {user_id}")
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Ошибка: информация о загруженных фотографиях не найдена. Пожалуйста, загрузите фотографии заново."
-                    )
-                    self.state_manager.reset_state(user_id)
-                    return
-                
-                # Вызываем метод обработки выбора типа модели для медиагруппы
-                await self.handle_media_group_type_selection(update, context, media_group_id, model_type)
-            except Exception as e:
-                logger.error(f"Ошибка при обработке выбора типа модели для медиагруппы: {e}", exc_info=True)
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"Произошла ошибка при обработке выбора типа модели: {str(e)}. Пожалуйста, попробуйте еще раз."
-                )
-                self.state_manager.reset_state(user_id)
         
-        # Обработка отмены обучения
-        elif callback_data == "cancel_training":
-            # Отмена обучения модели
-            logger.info(f"Пользователь {user_id} отменил обучение модели")
-            try:
-                await query.edit_message_text("Обучение модели отменено.")
-            except Exception as e:
-                logger.error(f"Ошибка при отправке сообщения об отмене: {e}", exc_info=True)
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Обучение модели отменено."
-                    )
-                except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение об отмене: {send_error}", exc_info=True)
-            self.state_manager.reset_state(user_id)
-        
-        # Обработка команд из кнопок
-        elif callback_data.startswith("cmd_"):
+        # Обрабатываем callback-данные
+        if callback_data.startswith("cmd_"):
             # Обработка команд из кнопок
             command = callback_data.split("_")[1]
             
@@ -1023,51 +919,164 @@ class AstriaBot:
             media_group_id = callback_data.split("_")[2]
             logger.info(f"Пользователь {user_id} запустил обучение модели для медиагруппы {media_group_id}")
             
-            # Используем блокировку для безопасного доступа к словарю медиагрупп
-            with self.media_groups_lock:
-                # Проверяем, существует ли медиагруппа
-                if media_group_id not in self.media_groups:
-                    logger.error(f"Медиагруппа {media_group_id} не найдена при попытке начать обучение")
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Ошибка: информация о загруженных фотографиях не найдена. Пожалуйста, загрузите фотографии заново."
-                    )
-                    return
+            # Проверяем, существует ли медиагруппа
+            if media_group_id not in self.media_groups:
+                logger.error(f"Медиагруппа {media_group_id} не найдена при попытке начать обучение")
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="Ошибка: информация о загруженных фотографиях не найдена. Пожалуйста, загрузите фотографии заново."
+                )
+                return
+            
+            # Получаем данные медиагруппы
+            file_paths = self.media_groups[media_group_id]["file_paths"]
+            status_message_id = self.media_groups[media_group_id]["status_message_id"]
+            
+            # Получаем модель и тип из состояния пользователя
+            model_name = self.state_manager.get_data(user_id, "model_name")
+            model_type = self.state_manager.get_data(user_id, "model_type")
+            
+            # Если нет данных, используем значения по умолчанию
+            if not model_name:
+                model_name = f"model_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                logger.warning(f"Не найдено имя модели для пользователя {user_id}, используем сгенерированное: {model_name}")
                 
-                # Получаем данные медиагруппы
-                file_paths = self.media_groups[media_group_id]["file_paths"]
-                status_message_id = self.media_groups[media_group_id]["status_message_id"]
+            if not model_type:
+                model_type = "default"
+                logger.warning(f"Не найден тип модели для пользователя {user_id}, используем значение по умолчанию: {model_type}")
             
-            # Запрашиваем имя модели у пользователя
-            self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME_FOR_MEDIA_GROUP)
-            self.state_manager.set_data(user_id, "media_group_id", media_group_id)
+            # Формируем данные для отправки
+            data = {
+                "model_name": model_name,
+                "model_type": model_type,
+                "file_paths": file_paths,
+                "telegram_id": user_id
+            }
             
-            # Создаем клавиатуру с кнопкой отмены
-            keyboard = [
-                [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            logger.info(f"Отправка данных для обучения: модель '{model_name}', тип '{model_type}', файлов: {len(file_paths)}")
             
             # Обновляем статусное сообщение
+            if status_message_id:
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=user_id,
+                        message_id=status_message_id,
+                        text=f"⏳ Отправка фотографий на сервер для обучения модели..."
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
+            
+            # Отправляем данные на вебхук
             try:
-                await context.bot.edit_message_text(
-                    chat_id=user_id,
-                    message_id=status_message_id,
-                    text=f"📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Запрос имени модели отправлен пользователю {user_id}")
+                async with aiohttp.ClientSession() as session:
+                    async with session.post('https://n8n2.supashkola.ru/webhook/start_finetune', json=data) as response:
+                        if response.status == 200:
+                            logger.info(f"Данные медиагруппы {media_group_id} успешно отправлены на вебхук: {len(file_paths)} фотографий")
+                            
+                            # Создаем кнопки для навигации
+                            keyboard = [
+                                [
+                                    InlineKeyboardButton("🏠 В главное меню", callback_data="cmd_start")
+                                ]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            
+                            # Обновляем статусное сообщение, если оно существует
+                            if status_message_id:
+                                try:
+                                    await context.bot.edit_message_text(
+                                        chat_id=user_id,
+                                        message_id=status_message_id,
+                                        text=f"✅ Все фотографии ({len(file_paths)}) успешно отправлены на сервер для обучения модели.\n\nМы уведомим вас, когда модель будет готова.",
+                                        reply_markup=reply_markup
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
+                                    # Если не удалось обновить статусное сообщение, отправляем новое
+                                    try:
+                                        await context.bot.send_message(
+                                            chat_id=user_id,
+                                            text=f"✅ Все фотографии ({len(file_paths)}) успешно отправлены на сервер для обучения модели.\n\nМы уведомим вас, когда модель будет готова.",
+                                            reply_markup=reply_markup
+                                        )
+                                    except Exception as send_error:
+                                        logger.error(f"Не удалось отправить сообщение об успехе: {send_error}")
+                            else:
+                                # Если нет статусного сообщения, отправляем новое
+                                try:
+                                    await context.bot.send_message(
+                                        chat_id=user_id,
+                                        text=f"✅ Все фотографии ({len(file_paths)}) успешно отправлены на сервер для обучения модели.\n\nМы уведомим вас, когда модель будет готова.",
+                                        reply_markup=reply_markup
+                                    )
+                                except Exception as send_error:
+                                    logger.error(f"Не удалось отправить сообщение об успехе: {send_error}")
+                        else:
+                            logger.error(f"Ошибка при отправке данных медиагруппы на вебхук: {response.status}")
+                            
+                            # Обновляем статусное сообщение
+                            if status_message_id:
+                                try:
+                                    # Восстанавливаем кнопки для повторной попытки
+                                    keyboard = [
+                                        [
+                                            InlineKeyboardButton("✅ Повторить попытку", callback_data=f"start_training_{media_group_id}"),
+                                            InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
+                                        ]
+                                    ]
+                                    reply_markup = InlineKeyboardMarkup(keyboard)
+                                    
+                                    await context.bot.edit_message_text(
+                                        chat_id=user_id,
+                                        message_id=status_message_id,
+                                        text=f"❌ Ошибка при отправке фотографий на сервер. Пожалуйста, попробуйте снова.",
+                                        reply_markup=reply_markup
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
             except Exception as e:
-                logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
-                # Отправляем новое сообщение, если не смогли обновить статусное
+                logger.error(f"Исключение при отправке данных медиагруппы на вебхук: {e}")
+                
+                # Обновляем статусное сообщение
+                if status_message_id:
+                    try:
+                        # Восстанавливаем кнопки для повторной попытки
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("✅ Повторить попытку", callback_data=f"start_training_{media_group_id}"),
+                                InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
+                            ]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await context.bot.edit_message_text(
+                            chat_id=user_id,
+                            message_id=status_message_id,
+                            text=f"❌ Произошла ошибка при обработке фотографий: {str(e)}",
+                            reply_markup=reply_markup
+                        )
+                    except Exception as edit_error:
+                        logger.error(f"Ошибка при обновлении статусного сообщения: {edit_error}")
+            
+            # После успешной или неудачной отправки очищаем медиагруппу из словаря
+            del self.media_groups[media_group_id]
+            logger.info(f"Медиагруппа {media_group_id} обработана и удалена из словаря")
+        
+        elif callback_data == "cancel_training":
+            # Отмена обучения модели
+            logger.info(f"Пользователь {user_id} отменил обучение модели")
+            try:
+                await query.edit_message_text("Обучение модели отменено.")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке сообщения об отмене: {e}", exc_info=True)
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text=f"📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                        reply_markup=reply_markup
+                        text="Обучение модели отменено."
                     )
                 except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение с запросом имени модели: {send_error}")
+                    logger.error(f"Не удалось отправить сообщение об отмене: {send_error}", exc_info=True)
+            self.state_manager.reset_state(user_id)
         
         else:
             # Неизвестный callback
@@ -1383,20 +1392,15 @@ class AstriaBot:
         user_id = query.from_user.id
         logger.info(f"Обработка выбора типа модели для медиагруппы {media_group_id}: {model_type}")
         
-        # Проверяем, существует ли медиагруппа, используя блокировку
-        with self.media_groups_lock:
-            if media_group_id not in self.media_groups:
-                logger.error(f"Медиагруппа {media_group_id} не найдена при выборе типа модели")
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="Ошибка: информация о загруженных фотографиях не найдена. Пожалуйста, загрузите фотографии заново."
-                )
-                self.state_manager.reset_state(user_id)
-                return
-            
-            # Получаем данные медиагруппы
-            file_paths = self.media_groups[media_group_id]["file_paths"]
-            status_message_id = self.media_groups[media_group_id]["status_message_id"]
+        # Проверяем, существует ли медиагруппа
+        if media_group_id not in self.media_groups:
+            logger.error(f"Медиагруппа {media_group_id} не найдена при выборе типа модели")
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="Ошибка: информация о загруженных фотографиях не найдена. Пожалуйста, загрузите фотографии заново."
+            )
+            self.state_manager.reset_state(user_id)
+            return
         
         # Сохраняем тип модели в состоянии пользователя
         self.state_manager.set_data(user_id, "model_type", model_type)
@@ -1412,13 +1416,21 @@ class AstriaBot:
             self.state_manager.reset_state(user_id)
             return
         
+        # Получаем данные медиагруппы
+        file_paths = self.media_groups[media_group_id]["file_paths"]
+        status_message_id = self.media_groups[media_group_id]["status_message_id"]
+        
+        # Получаем модель и тип из состояния пользователя
+        model_name = self.state_manager.get_data(user_id, "model_name")
+        model_type = self.state_manager.get_data(user_id, "model_type")
+        
         # Если нет данных, используем значения по умолчанию
         if not model_name:
             model_name = f"model_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             logger.warning(f"Не найдено имя модели для пользователя {user_id}, используем сгенерированное: {model_name}")
             
         if not model_type:
-            model_type = "man"
+            model_type = "default"
             logger.warning(f"Не найден тип модели для пользователя {user_id}, используем значение по умолчанию: {model_type}")
         
         # Формируем данные для отправки
@@ -1584,10 +1596,6 @@ class AstriaBot:
         # Логируем доступные обработчики
         logger.info(f"Зарегистрированы обработчики: команды, фото, текст, колбеки")
         
-        # Запускаем задачу периодической очистки
-        self.cleanup_task = asyncio.create_task(self.start_periodic_cleanup())
-        logger.info("Запущена задача периодической очистки неактивных сессий и устаревших медиагрупп")
-        
         # Проверяем, нужно ли использовать вебхук
         if WEBHOOK_URL:
             self.setup_webhook(application)
@@ -1614,46 +1622,6 @@ class AstriaBot:
         )
         
         logger.info("Вебхук успешно настроен")
-
-    async def start_periodic_cleanup(self) -> None:
-        """Запускает периодическую очистку неактивных сессий и устаревших медиагрупп"""
-        while True:
-            try:
-                # Очищаем неактивные пользовательские сессии
-                self.state_manager.cleanup_inactive_sessions()
-                
-                # Очищаем устаревшие медиагруппы
-                await self.cleanup_media_groups()
-                
-                # Ждем 1 час перед следующей очисткой
-                await asyncio.sleep(60 * 60)
-            except asyncio.CancelledError:
-                logger.info("Задача очистки отменена")
-                break
-            except Exception as e:
-                logger.error(f"Ошибка в задаче периодической очистки: {e}", exc_info=True)
-                # При ошибке ждем немного и пробуем снова
-                await asyncio.sleep(300)
-
-    async def cleanup_media_groups(self) -> None:
-        """Очистка устаревших медиагрупп"""
-        current_time = time.time()
-        groups_to_remove = []
-        
-        # Находим устаревшие медиагруппы (старше 24 часов)
-        with self.media_groups_lock:
-            for media_group_id, data in self.media_groups.items():
-                if current_time - data["last_update"] > 24 * 60 * 60:  # 24 часа
-                    groups_to_remove.append(media_group_id)
-        
-        # Удаляем устаревшие медиагруппы
-        if groups_to_remove:
-            with self.media_groups_lock:
-                for media_group_id in groups_to_remove:
-                    if media_group_id in self.media_groups:
-                        del self.media_groups[media_group_id]
-            
-            logger.info(f"Очищено {len(groups_to_remove)} устаревших медиагрупп")
 
 
 if __name__ == "__main__":
