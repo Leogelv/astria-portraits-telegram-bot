@@ -567,39 +567,6 @@ class AstriaBot:
             # Начинаем генерацию изображений
             await self.start_image_generation(update, context)
         
-        elif state == UserState.ENTERING_MODEL_NAME_FOR_MEDIA_GROUP:
-            # Пользователь вводит название модели для медиагруппы
-            if len(text) > 50:
-                await update.message.reply_text("Название модели слишком длинное (максимум 50 символов). Пожалуйста, введите более короткое название.")
-                return
-            
-            # Получаем ID медиагруппы
-            media_group_id = self.state_manager.get_data(user_id, "media_group_id")
-            if not media_group_id:
-                await update.message.reply_text("Произошла ошибка: ID медиагруппы не найден. Пожалуйста, попробуйте еще раз.")
-                self.state_manager.reset_state(user_id)
-                return
-            
-            # Сохраняем название модели
-            self.state_manager.set_data(user_id, "model_name", text)
-            
-            # Запрашиваем тип модели
-            keyboard = [
-                [
-                    InlineKeyboardButton("Мужчина", callback_data=f"mgtype_{media_group_id}_male"),
-                    InlineKeyboardButton("Женщина", callback_data=f"mgtype_{media_group_id}_female")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                f"Название модели: {text}\n\nТеперь выберите тип модели:",
-                reply_markup=reply_markup
-            )
-            
-            # Устанавливаем состояние выбора типа модели для медиагруппы
-            self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE_FOR_MEDIA_GROUP)
-        
         else:
             # Пользователь отправил текст вне контекста команды
             await update.message.reply_text(
@@ -960,36 +927,114 @@ class AstriaBot:
             file_paths = self.media_groups[media_group_id]["file_paths"]
             status_message_id = self.media_groups[media_group_id]["status_message_id"]
             
-            # Запрашиваем у пользователя название и тип модели
-            # Устанавливаем временное состояние
-            self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME_FOR_MEDIA_GROUP)
-            self.state_manager.set_data(user_id, "media_group_id", media_group_id)
+            # Получаем модель и тип из состояния пользователя
+            model_name = self.state_manager.get_data(user_id, "model_name")
+            model_type = self.state_manager.get_data(user_id, "model_type")
             
-            # Отправляем запрос на ввод имени модели
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):"
-            )
-            logger.info(f"Запрос имени модели отправлен пользователю {user_id} для медиагруппы {media_group_id}")
-        
-        elif callback_data.startswith("mgtype_"):
-            # Выбор типа модели для медиагруппы
-            parts = callback_data.split("_")
-            media_group_id = parts[1]
-            model_type = parts[2]
-            logger.info(f"Пользователь {user_id} выбрал тип {model_type} для медиагруппы {media_group_id}")
+            # Если нет данных, используем значения по умолчанию
+            if not model_name:
+                model_name = f"model_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                logger.warning(f"Не найдено имя модели для пользователя {user_id}, используем сгенерированное: {model_name}")
+                
+            if not model_type:
+                model_type = "default"
+                logger.warning(f"Не найден тип модели для пользователя {user_id}, используем значение по умолчанию: {model_type}")
             
-            try:
-                await self.handle_media_group_type_selection(update, context, media_group_id, model_type)
-            except Exception as e:
-                logger.error(f"Ошибка при обработке выбора типа медиагруппы: {e}", exc_info=True)
+            # Формируем данные для отправки
+            data = {
+                "model_name": model_name,
+                "model_type": model_type,
+                "file_paths": file_paths,
+                "telegram_id": user_id
+            }
+            
+            logger.info(f"Отправка данных для обучения: модель '{model_name}', тип '{model_type}', файлов: {len(file_paths)}")
+            
+            # Обновляем статусное сообщение
+            if status_message_id:
                 try:
-                    await context.bot.send_message(
+                    await context.bot.edit_message_text(
                         chat_id=user_id,
-                        text="❌ Произошла ошибка при обработке выбора типа медиагруппы. Пожалуйста, попробуйте позже."
+                        message_id=status_message_id,
+                        text=f"⏳ Отправка фотографий на сервер для обучения модели..."
                     )
-                except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение об ошибке: {send_error}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
+            
+            # Отправляем данные на вебхук
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post('https://n8n2.supashkola.ru/webhook/start_finetune', json=data) as response:
+                        if response.status == 200:
+                            logger.info(f"Данные медиагруппы {media_group_id} успешно отправлены на вебхук: {len(file_paths)} фотографий")
+                            
+                            # Отправляем подтверждение пользователю
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text=f"✅ Все фотографии ({len(file_paths)}) успешно отправлены на сервер для обучения модели.\n\n"
+                                     f"Мы уведомим вас, когда модель будет готова."
+                            )
+                            
+                            # Обновляем статусное сообщение, если оно существует
+                            if status_message_id:
+                                try:
+                                    await context.bot.edit_message_text(
+                                        chat_id=user_id,
+                                        message_id=status_message_id,
+                                        text=f"✅ Все фотографии ({len(file_paths)}) успешно отправлены на сервер для обучения модели.\n\nМы уведомим вас, когда модель будет готова."
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
+                        else:
+                            logger.error(f"Ошибка при отправке данных медиагруппы на вебхук: {response.status}")
+                            
+                            # Обновляем статусное сообщение
+                            if status_message_id:
+                                try:
+                                    # Восстанавливаем кнопки для повторной попытки
+                                    keyboard = [
+                                        [
+                                            InlineKeyboardButton("✅ Повторить попытку", callback_data=f"start_training_{media_group_id}"),
+                                            InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
+                                        ]
+                                    ]
+                                    reply_markup = InlineKeyboardMarkup(keyboard)
+                                    
+                                    await context.bot.edit_message_text(
+                                        chat_id=user_id,
+                                        message_id=status_message_id,
+                                        text=f"❌ Ошибка при отправке фотографий на сервер. Пожалуйста, попробуйте снова.",
+                                        reply_markup=reply_markup
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
+            except Exception as e:
+                logger.error(f"Исключение при отправке данных медиагруппы на вебхук: {e}")
+                
+                # Обновляем статусное сообщение
+                if status_message_id:
+                    try:
+                        # Восстанавливаем кнопки для повторной попытки
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("✅ Повторить попытку", callback_data=f"start_training_{media_group_id}"),
+                                InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
+                            ]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await context.bot.edit_message_text(
+                            chat_id=user_id,
+                            message_id=status_message_id,
+                            text=f"❌ Произошла ошибка при обработке фотографий: {str(e)}",
+                            reply_markup=reply_markup
+                        )
+                    except Exception as edit_error:
+                        logger.error(f"Ошибка при обновлении статусного сообщения: {edit_error}")
+            
+            # После успешной или неудачной отправки очищаем медиагруппу из словаря
+            del self.media_groups[media_group_id]
+            logger.info(f"Медиагруппа {media_group_id} обработана и удалена из словаря")
         
         elif callback_data == "cancel_training":
             # Отмена обучения модели
@@ -1349,6 +1394,19 @@ class AstriaBot:
         file_paths = self.media_groups[media_group_id]["file_paths"]
         status_message_id = self.media_groups[media_group_id]["status_message_id"]
         
+        # Получаем модель и тип из состояния пользователя
+        model_name = self.state_manager.get_data(user_id, "model_name")
+        model_type = self.state_manager.get_data(user_id, "model_type")
+        
+        # Если нет данных, используем значения по умолчанию
+        if not model_name:
+            model_name = f"model_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            logger.warning(f"Не найдено имя модели для пользователя {user_id}, используем сгенерированное: {model_name}")
+            
+        if not model_type:
+            model_type = "default"
+            logger.warning(f"Не найден тип модели для пользователя {user_id}, используем значение по умолчанию: {model_type}")
+        
         # Формируем данные для отправки
         data = {
             "model_name": model_name,
@@ -1356,6 +1414,8 @@ class AstriaBot:
             "file_paths": file_paths,
             "telegram_id": user_id
         }
+        
+        logger.info(f"Отправка данных для обучения: модель '{model_name}', тип '{model_type}', файлов: {len(file_paths)}")
         
         # Обновляем статусное сообщение
         if status_message_id:
