@@ -264,11 +264,24 @@ class AstriaBot:
             logger.error(f"Исключение при получении кредитов через API: {e}", exc_info=True)
             credits = 0
         
-        await update.message.reply_text(
-            f"💰 У вас {credits} кредитов.\n\n"
-            f"Каждое обучение модели стоит 1 кредит.\n"
-            f"Каждая генерация изображений стоит 1 кредит."
-        )
+        message = f"💰 У вас {credits} кредитов.\n\n" \
+                  f"Каждое обучение модели стоит 1 кредит.\n" \
+                  f"Каждая генерация изображений стоит 1 кредит."
+        
+        # Создаем клавиатуру с кнопкой "Назад"
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Пробуем изменить текущее сообщение
+        try:
+            await update.message.reply_text(
+                message,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения о кредитах: {e}", exc_info=True)
 
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /cancel"""
@@ -589,29 +602,34 @@ class AstriaBot:
             try:
                 if command == "train":
                     logger.info(f"Начинаю обработку команды train из callback для пользователя {user_id}")
-                    # Текстовое сообщение с инструкцией
-                    message = (
-                        "🖼️ Для обучения модели отправьте 3-10 фотографий одного человека.\n\n"
-                        "Рекомендации для лучшего результата:\n"
-                        "- Отправляйте фотографии хорошего качества\n"
-                        "- Выбирайте разнообразные позы и фоны\n"
-                        "- Лицо человека должно быть хорошо видно\n"
-                        "- Избегайте групповых фотографий\n\n"
-                        "После загрузки фотографий вам нужно будет указать имя модели и ее тип (мужская/женская).\n\n"
-                        "Обучение модели занимает от 20 до 60 минут. Вы получите уведомление, когда модель будет готова."
-                    )
+                    
+                    # Создаем клавиатуру с кнопкой отмены
+                    keyboard = [
+                        [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Устанавливаем состояние ввода имени модели
+                    self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
+                    self.state_manager.clear_data(user_id)
+                    logger.info(f"Установлено состояние ENTERING_MODEL_NAME для пользователя {user_id}")
                     
                     # Пробуем изменить текущее сообщение
                     try:
                         await query.edit_message_caption(
-                            caption=message
+                            caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
+                            reply_markup=reply_markup
                         )
+                        logger.info(f"Обновлено сообщение для пользователя {user_id}")
                     except Exception as e:
                         logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+                        # В случае ошибки отправляем новое сообщение
                         await context.bot.send_message(
                             chat_id=user_id,
-                            text=message
+                            text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
+                            reply_markup=reply_markup
                         )
+                        logger.info(f"Отправлен запрос имени модели пользователю {user_id}")
                 
                 elif command == "start":
                     logger.info(f"Начинаю обработку команды start из callback для пользователя {user_id}")
@@ -620,40 +638,192 @@ class AstriaBot:
                 
                 elif command == "generate":
                     logger.info(f"Начинаю обработку команды generate из callback для пользователя {user_id}")
-                    # Перенаправляем на команду generate
-                    await self.generate_command(update, context)
-
-                elif command == "credits":
-                    logger.info(f"Начинаю обработку команды credits из callback для пользователя {user_id}")
                     
-                    # Получаем кредиты пользователя через API запрос
+                    # Получаем модели пользователя через API запрос
                     try:
                         data = {"telegram_id": user_id}
                         async with aiohttp.ClientSession() as session:
-                            async with session.post('https://n8n2.supashkola.ru/webhook/my_credits', json=data) as response:
+                            async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
                                 if response.status == 200:
-                                    credits_data = await response.text()
-                                    try:
-                                        credits = int(credits_data.strip())
-                                    except ValueError:
-                                        logger.error(f"Не удалось преобразовать ответ API в число: {credits_data}")
-                                        credits = 0
-                                    logger.info(f"Получены кредиты пользователя {user_id} через API: {credits}")
+                                    models = await response.json()
+                                    logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
                                 else:
-                                    logger.error(f"Ошибка при получении кредитов через API: {response.status}")
-                                    credits = 0
+                                    logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                                    models = []
                     except Exception as e:
-                        logger.error(f"Исключение при получении кредитов через API: {e}", exc_info=True)
-                        credits = 0
+                        logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
+                        models = []
                     
-                    message = f"💰 У вас {credits} кредитов.\n\n" \
-                              f"Каждое обучение модели стоит 1 кредит.\n" \
-                              f"Каждая генерация изображений стоит 1 кредит."
+                    if not models:
+                        # Редактируем текущее сообщение
+                        try:
+                            await query.edit_message_caption(
+                                caption="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                            )
+                            logger.info(f"Обновлено сообщение для пользователя {user_id} - нет моделей")
+                        except Exception as e:
+                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                            )
+                        logger.info(f"Пользователь {user_id} не имеет моделей")
+                        return
+                    
+                    # Создаем клавиатуру с моделями
+                    keyboard = []
+                    for model in models:
+                        # Получаем данные модели из API ответа
+                        model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
+                        model_id = model.get("model_id", "unknown")
+                        
+                        keyboard.append([
+                            InlineKeyboardButton(model_name, callback_data=f"model_{model_id}")
+                        ])
+                    
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Устанавливаем состояние выбора модели
+                    self.state_manager.set_state(user_id, UserState.SELECTING_MODEL)
+                    logger.info(f"Установлено состояние SELECTING_MODEL для пользователя {user_id}")
+                    
+                    # Пробуем изменить текущее сообщение
+                    try:
+                        await query.edit_message_caption(
+                            caption="Выберите модель для генерации изображений:",
+                            reply_markup=reply_markup
+                        )
+                        logger.info(f"Обновлено сообщение для выбора модели пользователем {user_id}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при обновлении сообщения для выбора модели: {e}", exc_info=True)
+                        
+                        # Если не получилось изменить текущее сообщение, отправляем новое
+                        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
+                        try:
+                            await context.bot.send_photo(
+                                chat_id=user_id,
+                                photo=test_image_url,
+                                caption="Выберите модель для генерации изображений:",
+                                reply_markup=reply_markup
+                            )
+                            logger.info(f"Отправлен список моделей пользователю {user_id}")
+                        except Exception as send_err:
+                            logger.error(f"Ошибка при отправке списка моделей: {send_err}", exc_info=True)
+                            # Если не удалось отправить фото, отправляем текстовое сообщение
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="Выберите модель для генерации изображений:",
+                                reply_markup=reply_markup
+                            )
+                
+                elif command == "models":
+                    logger.info(f"Начинаю обработку команды models из callback для пользователя {user_id}")
+                    
+                    # Получаем модели пользователя через API запрос
+                    try:
+                        data = {"telegram_id": user_id}
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                                if response.status == 200:
+                                    models = await response.json()
+                                    logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
+                                else:
+                                    logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                                    models = []
+                    except Exception as e:
+                        logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
+                        models = []
+                    
+                    if not models:
+                        try:
+                            await query.edit_message_caption(
+                                caption="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                            )
+                        except Exception as e:
+                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                            )
+                        logger.info(f"Пользователь {user_id} не имеет моделей")
+                        return
+                    
+                    # Формируем сообщение со списком моделей
+                    message = "📋 Ваши модели:\n\n"
+                    
+                    for model in models:
+                        model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
+                        model_status = model.get("status", "неизвестно")
+                        model_date = model.get("created_at", "").split("T")[0] if isinstance(model.get("created_at", ""), str) else "Неизвестно"
+                        model_id = model.get("model_id", "неизвестно")
+                        
+                        message += f"🔹 {model_name}\n"
+                        message += f"   ID: {model_id}\n"
+                        message += f"   Статус: {model_status}\n"
+                        message += f"   Создана: {model_date}\n\n"
                     
                     # Пробуем изменить текущее сообщение
                     try:
                         await query.edit_message_caption(
                             caption=message
+                        )
+                        logger.info(f"Обновлено сообщение со списком моделей для пользователя {user_id}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при обновлении сообщения со списком моделей: {e}", exc_info=True)
+                        
+                        # Если не получилось изменить текущее сообщение, отправляем новое
+                        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
+                        try:
+                            await context.bot.send_photo(
+                                chat_id=user_id,
+                                photo=test_image_url,
+                                caption=message
+                            )
+                            logger.info(f"Отправлен список моделей пользователю {user_id}")
+                        except Exception as send_err:
+                            logger.error(f"Ошибка при отправке списка моделей: {send_err}", exc_info=True)
+                            # Если не удалось отправить фото, отправляем текстовое сообщение
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text=message
+                            )
+                
+                elif command == "credits":
+                    logger.info(f"Начинаю обработку команды credits из callback для пользователя {user_id}")
+                    
+                    # Получаем пользователя из базы данных
+                    user = await self.db.get_user(user_id)
+                    
+                    if not user:
+                        try:
+                            await query.edit_message_caption(
+                                caption="Произошла ошибка при получении информации о кредитах."
+                            )
+                        except Exception as e:
+                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+                            await context.bot.send_message(
+                                chat_id=user_id,
+                                text="Произошла ошибка при получении информации о кредитах."
+                            )
+                        logger.error(f"Не удалось получить информацию о пользователе {user_id}")
+                        return
+                    
+                    credits = user.get("credits", 0)
+                    message = f"💰 У вас {credits} кредитов.\n\n" \
+                              f"Каждое обучение модели стоит 1 кредит.\n" \
+                              f"Каждая генерация изображений стоит 1 кредит."
+                    
+                    # Создаем клавиатуру с кнопкой "Назад"
+                    keyboard = [
+                        [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Пробуем изменить текущее сообщение
+                    try:
+                        await query.edit_message_caption(
+                            caption=message,
+                            reply_markup=reply_markup
                         )
                         logger.info(f"Обновлено сообщение с информацией о кредитах для пользователя {user_id}")
                     except Exception as e:
@@ -665,7 +835,8 @@ class AstriaBot:
                             await context.bot.send_photo(
                                 chat_id=user_id,
                                 photo=test_image_url,
-                                caption=message
+                                caption=message,
+                                reply_markup=reply_markup
                             )
                             logger.info(f"Отправлена информация о кредитах пользователю {user_id}")
                         except Exception as send_err:
@@ -756,7 +927,8 @@ class AstriaBot:
                 logger.error(f"Не удалось получить model_id или prompt для пользователя {user_id}")
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text="Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью команды /generate.")
+                    text="Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью команды /generate."
+                )
                 self.state_manager.reset_state(user_id)
                 return
             
