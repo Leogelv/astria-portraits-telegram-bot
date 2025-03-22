@@ -50,17 +50,23 @@ class AstriaBot:
         self.api = ApiClient()
         self.state_manager = StateManager()
         
-        # Словарь для отслеживания медиагрупп
+        # Словарь для отслеживания медиагрупп (временно, будет переопределен)
         self.media_groups = {}
+        
+        # Инициализация сервисов
+        self.n8n_service = N8NService()
         
         # Инициализация обработчиков
         self.command_handler = BotCommandHandler(self.state_manager, self.db, self.api)
         self.message_handler = BotMessageHandler(self.state_manager, self.db, self.api)
-        self.callback_handler = CallbackHandler(self.state_manager, self.db, self.api, self.media_groups)
-        self.media_handler = MediaHandler(self.state_manager, self.db, self.api, self.media_groups)
         
-        # Инициализация сервисов
-        self.n8n_service = N8NService()
+        # Сначала инициализируем медиа обработчик, так как мы будем использовать его media_groups
+        self.media_handler = MediaHandler(self.state_manager, self.db, self.n8n_service)
+        # Используем media_groups из media_handler
+        self.media_groups = self.media_handler.media_groups
+        
+        # Теперь можем безопасно передать media_groups в callback_handler
+        self.callback_handler = CallbackHandler(self.state_manager, self.db, self.api, self.media_groups)
         
         # Инициализируем application как None, позже заполним в run()
         self.application = None
