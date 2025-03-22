@@ -563,9 +563,28 @@ class AstriaBot:
             
             # Сохраняем промпт
             self.state_manager.set_data(user_id, "prompt", text)
+            logger.info(f"Пользователь {user_id} ввел промпт: {text}")
             
-            # Начинаем генерацию изображений
-            await self.start_image_generation(update, context)
+            # Получаем ID модели
+            model_id = self.state_manager.get_data(user_id, "model_id")
+            
+            # Создаем клавиатуру с кнопкой для запуска генерации
+            keyboard = [
+                [InlineKeyboardButton("🚀 Запустить генерацию", callback_data="start_generation")],
+                [InlineKeyboardButton("✏️ Изменить промпт", callback_data="edit_prompt")],
+                [InlineKeyboardButton("❌ Отменить", callback_data="cancel_generation")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Отправляем сообщение с подтверждением и кнопкой для запуска генерации
+            await update.message.reply_text(
+                f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+                reply_markup=reply_markup
+            )
+            logger.info(f"Отправлено сообщение с подтверждением промпта и кнопкой для запуска генерации пользователю {user_id}")
+            
+            # Обновляем состояние
+            self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)
         
         else:
             # Пользователь отправил текст вне контекста команды
@@ -854,29 +873,192 @@ class AstriaBot:
         
         elif callback_data.startswith("model_"):
             # Выбор модели для генерации изображений
-            model_id = int(callback_data.split("_")[1])
-            logger.info(f"Пользователь {user_id} выбрал модель {model_id}")
+            try:
+                model_id_str = callback_data.split("_")[1]
+                if model_id_str.lower() == "none" or not model_id_str:
+                    logger.error(f"Некорректный ID модели в callback_data: {model_id_str}")
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="Ошибка: некорректный ID модели. Пожалуйста, выберите модель заново."
+                    )
+                    return
+                
+                model_id = int(model_id_str)
+                logger.info(f"Пользователь {user_id} выбрал модель {model_id}")
+                
+                # Сохраняем ID модели
+                self.state_manager.set_data(user_id, "model_id", model_id)
+                
+                # Устанавливаем состояние ввода промпта
+                self.state_manager.set_state(user_id, UserState.ENTERING_PROMPT)
+                logger.info(f"Установлено состояние ENTERING_PROMPT для пользователя {user_id}")
+                
+                # Создаем клавиатуру с кнопкой отмены
+                keyboard = [
+                    [InlineKeyboardButton("❌ Отменить", callback_data="cancel_generation")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Просим ввести промпт
+                try:
+                    await query.edit_message_text(
+                        text=ENTER_PROMPT_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлен запрос на ввод промпта пользователю {user_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке запроса на ввод промпта: {e}", exc_info=True)
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=ENTER_PROMPT_MESSAGE,
+                            reply_markup=reply_markup
+                        )
+                    except Exception as send_error:
+                        logger.error(f"Не удалось отправить сообщение с запросом промпта: {send_error}", exc_info=True)
+            except ValueError as e:
+                logger.error(f"Ошибка при преобразовании ID модели: {e}", exc_info=True)
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="Ошибка: некорректный формат ID модели. Пожалуйста, выберите модель заново."
+                )
+            except Exception as e:
+                logger.error(f"Неизвестная ошибка при обработке выбора модели: {e}", exc_info=True)
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"Произошла ошибка при выборе модели: {str(e)}. Пожалуйста, попробуйте еще раз."
+                )
+        
+        elif callback_data == "start_generation":
+            # Запуск генерации изображений
+            logger.info(f"Пользователь {user_id} запустил генерацию изображений")
             
-            # Сохраняем ID модели
-            self.state_manager.set_data(user_id, "model_id", model_id)
+            # Получаем данные из состояния пользователя
+            model_id = self.state_manager.get_data(user_id, "model_id")
+            prompt = self.state_manager.get_data(user_id, "prompt")
+            
+            if not model_id or not prompt:
+                logger.error(f"Не удалось получить model_id или prompt для пользователя {user_id}")
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью команды /generate."
+                )
+                self.state_manager.reset_state(user_id)
+                return
+            
+            # Создаем данные для запроса
+            data = {
+                "model_id": model_id,
+                "prompt": prompt,
+                "telegram_id": user_id,
+                "num_images": 4  # Количество изображений для генерации
+            }
+            
+            logger.info(f"Данные для генерации: model_id={model_id}, prompt='{prompt}', telegram_id={user_id}")
+            
+            # Отправляем статусное сообщение
+            try:
+                await query.edit_message_text("⏳ Отправка запроса на генерацию изображений...")
+                status_message = await context.bot.send_message(
+                    chat_id=user_id,
+                    text="⏳ Отправка запроса на генерацию изображений..."
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при отправке статусного сообщения: {e}", exc_info=True)
+                status_message = await context.bot.send_message(
+                    chat_id=user_id,
+                    text="⏳ Отправка запроса на генерацию изображений..."
+                )
+            
+            # Отправляем запрос на генерацию
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post('https://n8n2.supashkola.ru/webhook/generate_tg', json=data) as response:
+                        response_text = await response.text()
+                        if response.status == 200:
+                            logger.info(f"Запрос на генерацию изображений для пользователя {user_id} успешно отправлен")
+                            try:
+                                response_data = await response.json()
+                                prompt_id = response_data.get("prompt_id", "unknown")
+                                logger.info(f"Получен ID промпта: {prompt_id}")
+                                
+                                # Обновляем статусное сообщение
+                                await context.bot.edit_message_text(
+                                    chat_id=user_id,
+                                    message_id=status_message.message_id,
+                                    text=f"✅ Запрос на генерацию изображений успешно отправлен! ID промпта: {prompt_id}\n\nМы уведомим вас, когда изображения будут готовы."
+                                )
+                            except json.JSONDecodeError:
+                                logger.error(f"Не удалось декодировать JSON-ответ: {response_text}")
+                                await context.bot.edit_message_text(
+                                    chat_id=user_id,
+                                    message_id=status_message.message_id,
+                                    text="✅ Запрос на генерацию изображений успешно отправлен!\n\nМы уведомим вас, когда изображения будут готовы."
+                                )
+                        else:
+                            logger.error(f"Ошибка при отправке запроса на генерацию: {response.status}, {response_text}")
+                            await context.bot.edit_message_text(
+                                chat_id=user_id,
+                                message_id=status_message.message_id,
+                                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {response.status}. Пожалуйста, попробуйте еще раз."
+                            )
+            except Exception as e:
+                logger.error(f"Исключение при отправке запроса на генерацию: {e}", exc_info=True)
+                await context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=status_message.message_id,
+                    text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {str(e)}. Пожалуйста, попробуйте еще раз."
+                )
+            
+            # Сбрасываем состояние пользователя
+            self.state_manager.reset_state(user_id)
+            
+        elif callback_data == "edit_prompt":
+            # Изменение промпта
+            logger.info(f"Пользователь {user_id} решил изменить промпт")
             
             # Устанавливаем состояние ввода промпта
             self.state_manager.set_state(user_id, UserState.ENTERING_PROMPT)
-            logger.info(f"Установлено состояние ENTERING_PROMPT для пользователя {user_id}")
             
-            # Просим ввести промпт
+            # Создаем клавиатуру с кнопкой отмены
+            keyboard = [
+                [InlineKeyboardButton("❌ Отменить", callback_data="cancel_generation")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Отправляем сообщение с запросом нового промпта
             try:
-                await query.edit_message_text(ENTER_PROMPT_MESSAGE)
-                logger.info(f"Отправлен запрос на ввод промпта пользователю {user_id}")
+                await query.edit_message_text(
+                    text="Пожалуйста, введите новый промпт для генерации изображений:",
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлен запрос на ввод нового промпта пользователю {user_id}")
             except Exception as e:
-                logger.error(f"Ошибка при отправке запроса на ввод промпта: {e}", exc_info=True)
+                logger.error(f"Ошибка при отправке запроса на ввод нового промпта: {e}", exc_info=True)
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text=ENTER_PROMPT_MESSAGE
+                        text="Пожалуйста, введите новый промпт для генерации изображений:",
+                        reply_markup=reply_markup
                     )
                 except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение с запросом промпта: {send_error}", exc_info=True)
+                    logger.error(f"Не удалось отправить сообщение с запросом нового промпта: {send_error}", exc_info=True)
+        
+        elif callback_data == "cancel_generation":
+            # Отмена генерации изображений
+            logger.info(f"Пользователь {user_id} отменил генерацию изображений")
+            try:
+                await query.edit_message_text("Генерация изображений отменена.")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке сообщения об отмене: {e}", exc_info=True)
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="Генерация изображений отменена."
+                    )
+                except Exception as send_error:
+                    logger.error(f"Не удалось отправить сообщение об отмене: {send_error}", exc_info=True)
+            self.state_manager.reset_state(user_id)
         
         elif callback_data.startswith("type_"):
             # Выбор типа модели
@@ -1057,10 +1239,6 @@ class AstriaBot:
                         )
                     except Exception as edit_error:
                         logger.error(f"Ошибка при обновлении статусного сообщения: {edit_error}")
-            
-            # После успешной или неудачной отправки очищаем медиагруппу из словаря
-            del self.media_groups[media_group_id]
-            logger.info(f"Медиагруппа {media_group_id} обработана и удалена из словаря")
         
         elif callback_data == "cancel_training":
             # Отмена обучения модели
