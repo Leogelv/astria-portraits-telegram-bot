@@ -927,8 +927,7 @@ class AstriaBot:
                 logger.error(f"Не удалось получить model_id или prompt для пользователя {user_id}")
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text="Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью команды /generate."
-                )
+                    text="Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью команды /generate.")
                 self.state_manager.reset_state(user_id)
                 return
             
@@ -1033,14 +1032,27 @@ class AstriaBot:
         elif callback_data == "cancel_generation":
             # Отмена генерации изображений
             logger.info(f"Пользователь {user_id} отменил генерацию изображений")
+            
+            # Создаем сообщение и клавиатуру с кнопкой "Назад"
+            message = "Генерация изображений отменена."
+            keyboard = [
+                [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             try:
-                await query.edit_message_text("Генерация изображений отменена.")
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлено сообщение об отмене генерации с кнопкой 'Назад' пользователю {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при отправке сообщения об отмене: {e}", exc_info=True)
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text="Генерация изображений отменена."
+                        text=message,
+                        reply_markup=reply_markup
                     )
                 except Exception as send_error:
                     logger.error(f"Не удалось отправить сообщение об отмене: {send_error}", exc_info=True)
@@ -1229,14 +1241,27 @@ class AstriaBot:
         elif callback_data == "cancel_training":
             # Отмена обучения модели
             logger.info(f"Пользователь {user_id} отменил обучение модели")
+            
+            # Создаем сообщение и клавиатуру с кнопкой "Назад"
+            message = "Обучение модели отменено."
+            keyboard = [
+                [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             try:
-                await query.edit_message_text("Обучение модели отменено.")
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлено сообщение об отмене обучения с кнопкой 'Назад' пользователю {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при отправке сообщения об отмене: {e}", exc_info=True)
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text="Обучение модели отменено."
+                        text=message,
+                        reply_markup=reply_markup
                     )
                 except Exception as send_error:
                     logger.error(f"Не удалось отправить сообщение об отмене: {send_error}", exc_info=True)
