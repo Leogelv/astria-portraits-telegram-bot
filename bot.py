@@ -372,17 +372,34 @@ class AstriaBot:
         previous_state = self.state_manager.get_state(user_id)
         self.state_manager.reset_state(user_id)
         
-        # Создаем клавиатуру с кнопкой "Назад"
+        # Создаем клавиатуру с кнопками для команд (как в /start)
         keyboard = [
-            [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
+            [
+                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
+            ],
+            [
+                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
+            ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Отправляем сообщение об отмене
-        await update.message.reply_text(
-            f"✅ Операция отменена. Состояние сброшено.",
-            reply_markup=reply_markup
-        )
+        # Отправляем welcome сообщение с фото
+        try:
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=WELCOME_IMAGE_URL,
+                caption=WELCOME_MESSAGE,
+                reply_markup=reply_markup
+            )
+            logger.info(f"Отправлено welcome сообщение пользователю {user_id} после команды /cancel")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке welcome сообщения: {e}", exc_info=True)
+            # Если не удалось отправить фото, отправляем текстовое сообщение
+            await update.message.reply_text(
+                text=WELCOME_MESSAGE,
+                reply_markup=reply_markup
+            )
         
         # Удаляем сообщение пользователя для чистоты чата
         if update.message:
@@ -1226,25 +1243,49 @@ class AstriaBot:
             # Отмена генерации изображений
             logger.info(f"Пользователь {user_id} отменил генерацию изображений")
             
-            # Создаем сообщение и клавиатуру с кнопкой "Назад"
-            message = "Генерация изображений отменена."
+            # Сбрасываем состояние пользователя
+            self.state_manager.reset_state(user_id)
+            
+            # Создаем клавиатуру с кнопками для команд (как в /start)
             keyboard = [
-                [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
+                [
+                    InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                    InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
+                ],
+                [
+                    InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
-                # Редактируем текущее сообщение
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Отправлено сообщение об отмене генерации с кнопкой 'Назад' пользователю {user_id}")
+                # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
+                if hasattr(query.message, 'caption') and query.message.caption is not None:
+                    await query.edit_message_caption(
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Обновлено сообщение с подписью для пользователя {user_id}")
+                else:
+                    # Если caption нет, меняем текст
+                    await query.edit_message_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Обновлено текстовое сообщение для пользователя {user_id}")
             except Exception as e:
-                logger.error(f"Ошибка при редактировании сообщения об отмене: {e}", exc_info=True)
-            
-            # Сбрасываем состояние пользователя
-            self.state_manager.reset_state(user_id)
+                logger.error(f"Ошибка при обновлении сообщения отмены: {e}", exc_info=True)
+                # В случае ошибки отправляем новое фото с меню
+                try:
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=WELCOME_IMAGE_URL,
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
+                except Exception as send_err:
+                    logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
         
         elif callback_data.startswith("type_"):
             # Выбор типа модели
@@ -1430,25 +1471,49 @@ class AstriaBot:
             # Отмена обучения модели
             logger.info(f"Пользователь {user_id} отменил обучение модели")
             
-            # Создаем сообщение и клавиатуру с кнопкой "Назад"
-            message = "Обучение модели отменено."
+            # Сбрасываем состояние пользователя
+            self.state_manager.reset_state(user_id)
+            
+            # Создаем клавиатуру с кнопками для команд (как в /start)
             keyboard = [
-                [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
+                [
+                    InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                    InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
+                ],
+                [
+                    InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
-                # Редактируем текущее сообщение
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Отправлено сообщение об отмене обучения с кнопкой 'Назад' пользователю {user_id}")
+                # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
+                if hasattr(query.message, 'caption') and query.message.caption is not None:
+                    await query.edit_message_caption(
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Обновлено сообщение с подписью для пользователя {user_id}")
+                else:
+                    # Если caption нет, меняем текст
+                    await query.edit_message_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Обновлено текстовое сообщение для пользователя {user_id}")
             except Exception as e:
-                logger.error(f"Ошибка при редактировании сообщения об отмене: {e}", exc_info=True)
-            
-            # Сбрасываем состояние пользователя
-            self.state_manager.reset_state(user_id)
+                logger.error(f"Ошибка при обновлении сообщения отмены: {e}", exc_info=True)
+                # В случае ошибки отправляем новое фото с меню
+                try:
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=WELCOME_IMAGE_URL,
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
+                except Exception as send_err:
+                    logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
         
         else:
             # Неизвестный callback
