@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 import aiohttp
 from loguru import logger
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -18,11 +18,13 @@ from config import (
     TELEGRAM_BOT_TOKEN,
     ADMIN_TELEGRAM_ID,
     WEBHOOK_URL,
-    WEBHOOK_SECRET
+    WEBHOOK_SECRET,
+    WELCOME_MESSAGE,
+    WELCOME_IMAGE_URL
 )
 from database import DatabaseManager
 from api_client import ApiClient
-from state_manager import StateManager
+from state_manager import StateManager, UserState
 from supabase_logger import SupabaseLogger
 from utils.logging_utils import setup_logger
 
@@ -102,19 +104,57 @@ class AstriaBot:
                 }
                 await self.db.update_user(user_id, user_data)
 
-    async def start_command_wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обертка для команды /start с регистрацией пользователя"""
-        if update.effective_user:
-            user_id = update.effective_user.id
-            username = update.effective_user.username or ""
-            first_name = update.effective_user.first_name or ""
-            last_name = update.effective_user.last_name or ""
-            
-            # Регистрируем пользователя
-            await self.register_user(user_id, username, first_name, last_name)
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик команды /start"""
+        if not update.effective_user:
+            return
         
-        # Передаем управление в основной обработчик команды
-        await self.command_handler.start_command(update, context)
+        user_id = update.effective_user.id
+        username = update.effective_user.username or ""
+        first_name = update.effective_user.first_name or ""
+        last_name = update.effective_user.last_name or ""
+        
+        logger.info(f"Пользователь {user_id} ({username}) запустил бота")
+        
+        # Регистрируем пользователя напрямую, не используя CommandHandler
+        await self.register_user(user_id, username, first_name, last_name)
+        
+        # Сбрасываем состояние пользователя
+        self.state_manager.reset_state(user_id)
+        
+        # Создаем клавиатуру с кнопками для команд
+        keyboard = [
+            [
+                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
+            ],
+            [
+                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # URL для фото приветствия - используем константу из config.py
+        try:
+            # Отправляем фото с приветствием и кнопками
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=WELCOME_IMAGE_URL,
+                caption=WELCOME_MESSAGE,
+                reply_markup=reply_markup
+            )
+            
+            # Удаляем сообщение пользователя для чистоты чата
+            if update.message:
+                try:
+                    await update.message.delete()
+                    logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
+                except Exception as e:
+                    logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Ошибка при отправке приветственного фото: {e}", exc_info=True)
+            # Если что-то пошло не так, отправляем текстовое сообщение
+            await update.message.reply_text(WELCOME_MESSAGE, reply_markup=reply_markup)
 
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик ошибок"""
@@ -151,7 +191,7 @@ class AstriaBot:
         self.notification_service = NotificationService(application, self.db)
         
         # Регистрируем обработчики команд
-        application.add_handler(CommandHandler("start", self.start_command_wrapper))
+        application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.command_handler.help_command))
         application.add_handler(CommandHandler("train", self.command_handler.train_command))
         application.add_handler(CommandHandler("generate", self.command_handler.generate_command))
