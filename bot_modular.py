@@ -30,7 +30,7 @@ from utils.logging_utils import setup_logger
 from handlers.command_handlers import CommandHandlers as BotCommandHandler
 from handlers.message_handlers import MessageHandler as BotMessageHandler
 from handlers.callback_handlers import CallbackHandler
-from handlers.media_handlers import MediaHandler
+from handlers.media_handlers import MediaHandlers as MediaHandler
 
 # Импорт сервисов
 from services.notification_service import NotificationService
