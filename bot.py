@@ -291,10 +291,23 @@ class AstriaBot:
         # Устанавливаем состояние выбора модели
         self.state_manager.set_state(user_id, UserState.SELECTING_MODEL)
         
-        await update.message.reply_text(
-            "Выберите модель для генерации изображений:",
-            reply_markup=reply_markup
-        )
+        # Используем изображение для отображения списка моделей
+        try:
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=WELCOME_IMAGE_URL,  # Используем изображение из конфигурации
+                caption="Выберите модель для генерации изображений:",
+                reply_markup=reply_markup
+            )
+            logger.info(f"Отправлен список моделей с изображением пользователю {user_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке фото со списком моделей: {e}", exc_info=True)
+            # В случае ошибки отправляем текстовое сообщение
+            await update.message.reply_text(
+                "Выберите модель для генерации изображений:",
+                reply_markup=reply_markup
+            )
+            logger.info(f"Отправлен текстовый список моделей пользователю {user_id}")
         
         # Удаляем сообщение пользователя для чистоты чата
         if update.message:
@@ -1095,21 +1108,32 @@ class AstriaBot:
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                # Просим ввести промпт
+                # Просим ввести промпт, проверяя тип сообщения
                 try:
-                    await query.edit_message_text(
-                        text=ENTER_PROMPT_MESSAGE,
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Отправлен запрос на ввод промпта пользователю {user_id}")
+                    # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
+                    if hasattr(query.message, 'caption') and query.message.caption is not None:
+                        await query.edit_message_caption(
+                            caption=ENTER_PROMPT_MESSAGE,
+                            reply_markup=reply_markup
+                        )
+                        logger.info(f"Обновлена подпись с запросом промпта для пользователя {user_id}")
+                    else:
+                        # Если caption нет, меняем текст
+                        await query.edit_message_text(
+                            text=ENTER_PROMPT_MESSAGE,
+                            reply_markup=reply_markup
+                        )
+                        logger.info(f"Отправлен запрос на ввод промпта пользователю {user_id}")
                 except Exception as e:
-                    logger.error(f"Ошибка при отправке запроса на ввод промпта: {e}", exc_info=True)
+                    logger.error(f"Ошибка при обновлении сообщения с запросом промпта: {e}", exc_info=True)
                     try:
+                        # Отправляем новое сообщение с запросом промпта
                         await context.bot.send_message(
                             chat_id=user_id,
                             text=ENTER_PROMPT_MESSAGE,
                             reply_markup=reply_markup
                         )
+                        logger.info(f"Отправлено новое сообщение с запросом промпта пользователю {user_id}")
                     except Exception as send_error:
                         logger.error(f"Не удалось отправить сообщение с запросом промпта: {send_error}", exc_info=True)
             except ValueError as e:
