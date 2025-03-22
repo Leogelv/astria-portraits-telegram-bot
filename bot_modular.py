@@ -27,7 +27,7 @@ from supabase_logger import SupabaseLogger
 from utils.logging_utils import setup_logger
 
 # Импорт обработчиков
-from handlers.command_handlers import CommandHandler as BotCommandHandler
+from handlers.command_handlers import CommandHandlers as BotCommandHandler
 from handlers.message_handlers import MessageHandler as BotMessageHandler
 from handlers.callback_handlers import CallbackHandler
 from handlers.media_handlers import MediaHandler
