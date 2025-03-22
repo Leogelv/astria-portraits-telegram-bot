@@ -943,13 +943,12 @@ class AstriaBot:
                         logger.error(f"Ошибка при обновлении сообщения для выбора модели: {e}", exc_info=True)
                         
                         # Если не получилось изменить текущее сообщение, отправляем новое
-                        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
+                        test_image_url = WELCOME_IMAGE_URL  # Используем константу из config.py
                         try:
                             await context.bot.send_photo(
                                 chat_id=user_id,
                                 photo=test_image_url,
-                                caption="Выберите модель для генерации изображений:",
-                                reply_markup=reply_markup
+                                caption=message
                             )
                             logger.info(f"Отправлен список моделей пользователю {user_id}")
                         except Exception as send_err:
