@@ -7,7 +7,7 @@ import aiohttp
 import json
 
 from state_manager import UserState
-from utils.message_utils import delete_message
+from utils.message_utils import delete_message, create_main_keyboard
 from config import WELCOME_MESSAGE, WELCOME_IMAGE_URL, INSTRUCTIONS_IMAGE_URL, ENTER_PROMPT_MESSAGE, UPLOAD_PHOTOS_MESSAGE
 
 class CallbackHandler:
@@ -175,17 +175,8 @@ class CallbackHandler:
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
         
-        # Создаем клавиатуру с кнопками для команд
-        keyboard = [
-            [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
-                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-            ],
-            [
-                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Используем функцию для создания основной клавиатуры
+        reply_markup = create_main_keyboard()
         
         # Редактируем текущее сообщение
         try:
@@ -697,46 +688,37 @@ class CallbackHandler:
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
         
-        # Создаем клавиатуру с кнопками для команд (как в /start)
-        keyboard = [
-            [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
-                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-            ],
-            [
-                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Используем функцию для создания основной клавиатуры
+        reply_markup = create_main_keyboard()
         
+        # Отправляем сообщение об отмене и возвращаемся в главное меню
         try:
-            # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
+            # Проверяем, есть ли caption в сообщении
             if hasattr(query.message, 'caption') and query.message.caption is not None:
                 await query.edit_message_caption(
-                    caption=WELCOME_MESSAGE,
+                    caption="Генерация изображений отменена.\n\nВыберите действие:",
                     reply_markup=reply_markup
                 )
-                logger.info(f"Обновлено сообщение с подписью для пользователя {user_id}")
             else:
                 # Если caption нет, меняем текст
                 await query.edit_message_text(
-                    text=WELCOME_MESSAGE,
+                    text="Генерация изображений отменена.\n\nВыберите действие:",
                     reply_markup=reply_markup
                 )
-                logger.info(f"Обновлено текстовое сообщение для пользователя {user_id}")
+            logger.info(f"Обновлено сообщение с отменой генерации для пользователя {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка при обновлении сообщения отмены: {e}", exc_info=True)
-            # В случае ошибки отправляем новое фото с меню
+            logger.error(f"Ошибка при обновлении сообщения с отменой генерации: {e}", exc_info=True)
+            
+            # В случае ошибки отправляем новое сообщение
             try:
-                await context.bot.send_photo(
+                await context.bot.send_message(
                     chat_id=user_id,
-                    photo=WELCOME_IMAGE_URL,
-                    caption=WELCOME_MESSAGE,
+                    text="Генерация изображений отменена.\n\nВыберите действие:",
                     reply_markup=reply_markup
                 )
-                logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
+                logger.info(f"Отправлено сообщение с отменой генерации пользователю {user_id}")
             except Exception as send_err:
-                logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
+                logger.error(f"Ошибка при отправке сообщения с отменой генерации: {send_err}", exc_info=True)
     
     async def _handle_model_type_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int, callback_data: str) -> None:
         """
@@ -951,46 +933,37 @@ class CallbackHandler:
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
         
-        # Создаем клавиатуру с кнопками для команд (как в /start)
-        keyboard = [
-            [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
-                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-            ],
-            [
-                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Используем функцию для создания основной клавиатуры
+        reply_markup = create_main_keyboard()
         
+        # Отправляем сообщение об отмене и возвращаемся в главное меню
         try:
-            # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
+            # Проверяем, есть ли caption в сообщении
             if hasattr(query.message, 'caption') and query.message.caption is not None:
                 await query.edit_message_caption(
-                    caption=WELCOME_MESSAGE,
+                    caption="Обучение модели отменено.\n\nВыберите действие:",
                     reply_markup=reply_markup
                 )
-                logger.info(f"Обновлено сообщение с подписью для пользователя {user_id}")
             else:
                 # Если caption нет, меняем текст
                 await query.edit_message_text(
-                    text=WELCOME_MESSAGE,
+                    text="Обучение модели отменено.\n\nВыберите действие:",
                     reply_markup=reply_markup
                 )
-                logger.info(f"Обновлено текстовое сообщение для пользователя {user_id}")
+            logger.info(f"Обновлено сообщение с отменой обучения для пользователя {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка при обновлении сообщения отмены: {e}", exc_info=True)
-            # В случае ошибки отправляем новое фото с меню
+            logger.error(f"Ошибка при обновлении сообщения с отменой обучения: {e}", exc_info=True)
+            
+            # В случае ошибки отправляем новое сообщение
             try:
-                await context.bot.send_photo(
+                await context.bot.send_message(
                     chat_id=user_id,
-                    photo=WELCOME_IMAGE_URL,
-                    caption=WELCOME_MESSAGE,
+                    text="Обучение модели отменено.\n\nВыберите действие:",
                     reply_markup=reply_markup
                 )
-                logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
+                logger.info(f"Отправлено сообщение с отменой обучения пользователю {user_id}")
             except Exception as send_err:
-                logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
+                logger.error(f"Ошибка при отправке сообщения с отменой обучения: {send_err}", exc_info=True)
     
     async def _handle_cmd_video(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """

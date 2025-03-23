@@ -27,6 +27,22 @@ def create_reply_markup(buttons: List[List[Dict[str, str]]]) -> InlineKeyboardMa
     
     return InlineKeyboardMarkup(keyboard)
 
+def create_main_keyboard() -> InlineKeyboardMarkup:
+    """
+    Создает основную клавиатуру с кнопками для главного меню бота.
+    Каждая кнопка расположена на отдельной строке.
+    
+    Returns:
+        InlineKeyboardMarkup: Клавиатура с основными кнопками
+    """
+    keyboard = [
+        [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
+        [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
+        [InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")],
+        [InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 async def send_or_edit_message(
     update: Update, 
     context: ContextTypes.DEFAULT_TYPE, 

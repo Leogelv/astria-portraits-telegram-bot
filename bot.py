@@ -1246,7 +1246,7 @@ class AstriaBot:
                             await context.bot.edit_message_text(
                                 chat_id=user_id,
                                 message_id=status_message.message_id,
-                                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {response.status}. Пожалуйста, попробуйте еще раз."
+                                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {response.status}. Пожалуйста, попробуй еще раз."
                             )
             except Exception as e:
                 logger.error(f"Исключение при отправке запроса на генерацию: {e}", exc_info=True)

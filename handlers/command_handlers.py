@@ -5,6 +5,10 @@ from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+from loguru import logger
+import aiohttp
+import random
+import string
 
 from config import (
     WELCOME_MESSAGE,
@@ -17,6 +21,7 @@ from config import (
 )
 from state_manager import UserState
 from database import DatabaseManager
+from utils.message_utils import delete_message, create_main_keyboard
 
 # Инициализация логгера
 logger = logging.getLogger(__name__)
@@ -78,39 +83,32 @@ class CommandHandlers:
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
         
-        # Создаем клавиатуру с кнопками для команд
-        keyboard = [
-            [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
-                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-            ],
-            [
-                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Используем функцию для создания основной клавиатуры
+        reply_markup = create_main_keyboard()
         
-        # URL для фото приветствия - используем константу из config.py
+        # Отправляем приветственное сообщение с инструкциями
         try:
-            # Отправляем фото с приветствием и кнопками
-            await context.bot.send_photo(
-                chat_id=user_id,
+            await update.message.reply_photo(
                 photo=WELCOME_IMAGE_URL,
                 caption=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
-            
-            # Удаляем сообщение пользователя для чистоты чата
-            if update.message:
-                try:
-                    await update.message.delete()
-                    logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
-                except Exception as e:
-                    logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
+            logger.info(f"Отправлено приветственное сообщение пользователю {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка при отправке приветственного фото: {e}", exc_info=True)
-            # Если что-то пошло не так, отправляем текстовое сообщение
-            await update.message.reply_text(WELCOME_MESSAGE, reply_markup=reply_markup)
+            logger.error(f"Ошибка при отправке приветственного сообщения: {e}", exc_info=True)
+            # Если не удалось отправить фото, отправляем текстовое сообщение
+            await update.message.reply_text(
+                WELCOME_MESSAGE,
+                reply_markup=reply_markup
+            )
+            logger.info(f"Отправлено текстовое приветственное сообщение пользователю {user_id}")
+        
+        # Удаляем сообщение пользователя для чистоты чата
+        try:
+            await delete_message(context, user_id, update.message.message_id)
+            logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
+        except Exception as e:
+            logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /help"""
@@ -174,7 +172,6 @@ class CommandHandlers:
         # Получаем модели пользователя через API запрос
         try:
             data = {"telegram_id": user_id}
-            import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
                     if response.status == 200:
@@ -254,7 +251,6 @@ class CommandHandlers:
         # Получаем кредиты пользователя через API запрос
         try:
             data = {"telegram_id": user_id}
-            import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post('https://n8n2.supashkola.ru/webhook/my_credits', json=data) as response:
                     if response.status == 200:

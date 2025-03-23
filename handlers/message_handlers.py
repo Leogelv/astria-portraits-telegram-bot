@@ -129,11 +129,11 @@ class MessageHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Получаем и сохраняем message_id сообщения с запросом промпта
+        # Получаем message_id сообщения с запросом промпта
         prompt_message_id = self.state_manager.get_data(user_id, "prompt_message_id")
         
         if prompt_message_id:
-            # Редактируем сообщение с запросом промпта вместо отправки нового
+            # Редактируем сообщение с запросом промпта
             try:
                 await context.bot.edit_message_text(
                     chat_id=user_id,
@@ -145,17 +145,21 @@ class MessageHandler:
             except Exception as e:
                 logger.error(f"Ошибка при обновлении сообщения с промптом: {e}", exc_info=True)
                 # В случае ошибки отправляем новое сообщение
-                await update.message.reply_text(
+                sent_message = await update.message.reply_text(
                     f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
                     reply_markup=reply_markup
                 )
+                # Сохраняем ID нового сообщения
+                self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
                 logger.info(f"Отправлено новое сообщение с подтверждением промпта пользователю {user_id}")
         else:
             # Если нет сохраненного ID сообщения, отправляем новое
-            await update.message.reply_text(
+            sent_message = await update.message.reply_text(
                 f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
                 reply_markup=reply_markup
             )
+            # Сохраняем ID нового сообщения
+            self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
             logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id}")
         
         # Обновляем состояние
