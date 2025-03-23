@@ -125,7 +125,9 @@ class AstriaBot:
         # Создаем клавиатуру с кнопками для команд
         keyboard = [
             [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")
+            ],
+            [
                 InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
             ],
             [

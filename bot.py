@@ -1232,14 +1232,14 @@ class AstriaBot:
                                 await context.bot.edit_message_text(
                                     chat_id=user_id,
                                     message_id=status_message.message_id,
-                                    text=f"✅ Запрос на генерацию изображений успешно отправлен! ID промпта: {prompt_id}\n\nМы уведомим вас, когда изображения будут готовы."
+                                    text=f"✅ Запрос на генерацию изображений успешно отправлен! Я сообщу тебе, когда изображения будут готовы."
                                 )
                             except json.JSONDecodeError:
                                 logger.error(f"Не удалось декодировать JSON-ответ: {response_text}")
                                 await context.bot.edit_message_text(
                                     chat_id=user_id,
                                     message_id=status_message.message_id,
-                                    text="✅ Запрос на генерацию изображений успешно отправлен!\n\nМы уведомим вас, когда изображения будут готовы."
+                                    text="✅ Запрос на генерацию изображений успешно отправлен!\n\nЯ сообщу тебе, когда изображения будут готовы."
                                 )
                         else:
                             logger.error(f"Ошибка при отправке запроса на генерацию: {response.status}, {response_text}")
@@ -1852,28 +1852,28 @@ class AstriaBot:
                             await context.bot.edit_message_text(
                                 chat_id=user_id,
                                 message_id=status_message.message_id,
-                                text=f"✅ Запрос на генерацию изображений успешно отправлен! ID промпта: {prompt_id}\n\nМы уведомим вас, когда изображения будут готовы."
+                                text=f"✅ Запрос на генерацию изображений успешно отправлен! Я сообщу тебе, когда изображения будут готовы."
                             )
                         except json.JSONDecodeError:
                             logger.error(f"Не удалось декодировать JSON-ответ: {response_text}")
                             await context.bot.edit_message_text(
                                 chat_id=user_id,
                                 message_id=status_message.message_id,
-                                text="✅ Запрос на генерацию изображений успешно отправлен!\n\nМы уведомим вас, когда изображения будут готовы."
+                                text="✅ Запрос на генерацию изображений успешно отправлен!\n\n Я сообщу тебе, когда изображения будут готовы."
                             )
                     else:
                         logger.error(f"Ошибка при отправке запроса на генерацию: {response.status}, {response_text}")
                         await context.bot.edit_message_text(
                             chat_id=user_id,
                             message_id=status_message.message_id,
-                            text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {response.status}. Пожалуйста, попробуйте еще раз."
+                            text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {response.status}. Пожалуйста, попробуй еще раз."
                         )
         except Exception as e:
             logger.error(f"Исключение при отправке запроса на генерацию: {e}", exc_info=True)
             await context.bot.edit_message_text(
                 chat_id=user_id,
                 message_id=status_message.message_id,
-                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {str(e)}. Пожалуйста, попробуйте еще раз."
+                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {str(e)}. Пожалуйста, попробуй еще раз."
             )
         
         # Сбрасываем состояние пользователя
