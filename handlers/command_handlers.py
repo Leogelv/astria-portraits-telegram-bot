@@ -67,10 +67,12 @@ class CommandHandlers:
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /start"""
-        if not update.effective_user:
+        if not update.effective_user or not update.effective_chat:
+            logger.error("Не удалось получить информацию о пользователе или чате")
             return
         
         user_id = update.effective_user.id
+        chat_id = update.effective_chat.id  # Используем ID чата, а не пользователя
         username = update.effective_user.username or ""
         first_name = update.effective_user.first_name or ""
         last_name = update.effective_user.last_name or ""
@@ -109,21 +111,28 @@ class CommandHandlers:
         
         # Отправляем welcome сообщение с фото
         try:
+            # Сохраняем chat_id в state_manager для будущего использования
+            self.state_manager.set_data(user_id, "chat_id", chat_id)
+            logger.info(f"Сохранен chat_id: {chat_id} для пользователя {user_id}")
+            
             await context.bot.send_photo(
-                chat_id=user_id,
+                chat_id=chat_id,  # Используем ID чата, а не пользователя
                 photo=WELCOME_IMAGE_URL,
                 caption=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
-            logger.info(f"Отправлено welcome сообщение пользователю {user_id}")
+            logger.info(f"Отправлено welcome сообщение пользователю {user_id} в чат {chat_id}")
         except Exception as e:
             logger.error(f"Ошибка при отправке welcome сообщения: {e}", exc_info=True)
             # Если не удалось отправить фото, отправляем текстовое сообщение
-            await update.message.reply_text(
-                text=WELCOME_MESSAGE,
-                reply_markup=reply_markup
-            )
-            logger.info(f"Отправлено текстовое welcome сообщение пользователю {user_id}")
+            try:
+                await update.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлено текстовое welcome сообщение пользователю {user_id}")
+            except Exception as text_err:
+                logger.error(f"Не удалось отправить даже текстовое сообщение: {text_err}", exc_info=True)
         
         # Удаляем сообщение пользователя для чистоты чата
         if update.message:
