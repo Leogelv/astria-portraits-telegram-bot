@@ -3,6 +3,7 @@ from telegram.ext import ContextTypes
 from loguru import logger
 from typing import Dict, Any, Optional
 import aiohttp
+import asyncio
 
 from state_manager import UserState
 from utils.message_utils import delete_message
@@ -141,9 +142,12 @@ class MessageHandler:
             text (str): Текст сообщения
             user_id (int): ID пользователя
         """
-        # Пользователь вводит промпт для генерации изображений
+        # Проверка длины промпта
         if len(text) > 500:
-            await update.message.reply_text("Промпт слишком длинный (максимум 500 символов). Пожалуйста, введите более короткий промпт.")
+            # Просто отвечаем в чат, это сообщение потом удалим
+            temp_msg = await update.message.reply_text("Промпт слишком длинный (максимум 500 символов). Пожалуйста, введите более короткий промпт.")
+            # Удаляем это сообщение через 5 секунд
+            asyncio.create_task(self._delete_message_later(context, user_id, temp_msg.message_id, 5))
             return
         
         # Сохраняем промпт
@@ -161,71 +165,111 @@ class MessageHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Получаем message_id сообщения с запросом промпта
-        prompt_message_id = self.state_manager.get_data(user_id, "prompt_message_id")
-        
-        if prompt_message_id:
-            logger.info(f"Редактирую сообщение {prompt_message_id} для пользователя {user_id}")
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=user_id,
-                    message_id=prompt_message_id,
-                    text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Обновлено сообщение с промптом для пользователя {user_id}")
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении сообщения с промптом: {e}", exc_info=True)
-                # Если не удалось обновить сообщение (возможно оно устарело), пробуем найти последнее сообщение от бота
-                try:
-                    # Пробуем редактировать последнее сообщение от бота
-                    updates = await context.bot.get_updates(limit=10, timeout=1)
-                    bot_messages = [u.message for u in updates if u.message and u.message.from_user and u.message.from_user.is_bot and u.message.chat.id == user_id]
-                    if bot_messages:
-                        latest_bot_message = bot_messages[-1]
-                        await context.bot.edit_message_text(
-                            chat_id=user_id,
-                            message_id=latest_bot_message.message_id,
-                            text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
-                            reply_markup=reply_markup
-                        )
-                        # Сохраняем ID нового сообщения
-                        self.state_manager.set_data(user_id, "prompt_message_id", latest_bot_message.message_id)
-                        logger.info(f"Отредактировано последнее сообщение бота с ID {latest_bot_message.message_id}")
-                        return
-                except Exception as latest_err:
-                    logger.error(f"Не удалось найти и отредактировать последнее сообщение бота: {latest_err}", exc_info=True)
-                
-                # Если все попытки редактирования не удались, отправляем новое сообщение в крайнем случае
-                sent_message = await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
-                    reply_markup=reply_markup
-                )
-                # Сохраняем ID нового сообщения
-                self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                logger.info(f"Отправлено новое сообщение с ID {sent_message.message_id} с подтверждением промпта (резервный вариант)")
-        else:
-            logger.warning(f"Не найден message_id для редактирования промпта пользователя {user_id}, отправляю новое сообщение")
-            # Если нет сохраненного ID сообщения, отправляем новое
-            sent_message = await context.bot.send_message(
-                chat_id=user_id,
-                text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
-                reply_markup=reply_markup
-            )
-            # Сохраняем ID нового сообщения
-            self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-            logger.info(f"Отправлено новое сообщение с ID {sent_message.message_id} с подтверждением промпта")
-        
-        # Обновляем состояние
-        self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)
-        
-        # Удаляем сообщение пользователя для чистоты чата
+        # ВСЕГДА сначала удаляем сообщение пользователя с промптом
         try:
             await delete_message(context, user_id, update.message.message_id)
             logger.info(f"Удалено текстовое сообщение с промптом от пользователя {user_id}")
         except Exception as e:
             logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
+        
+        # Получаем ID сообщения с запросом промпта или базового сообщения
+        prompt_message_id = self.state_manager.get_data(user_id, "prompt_message_id")
+        base_message_id = self.state_manager.get_data(user_id, "base_message_id")
+        
+        # Используем сперва prompt_message_id, если его нет - base_message_id
+        message_id_to_edit = prompt_message_id or base_message_id
+        
+        success_message = f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом."
+        
+        if message_id_to_edit:
+            # Редактируем существующее сообщение
+            try:
+                # Пробуем сначала как caption (если это сообщение с фото)
+                try:
+                    await context.bot.edit_message_caption(
+                        chat_id=user_id,
+                        message_id=message_id_to_edit,
+                        caption=success_message,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Обновлена подпись сообщения ID {message_id_to_edit} с промптом для пользователя {user_id}")
+                    # Сохраняем ID сообщения для последующего редактирования
+                    self.state_manager.set_data(user_id, "prompt_message_id", message_id_to_edit)
+                    self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)
+                    return
+                except Exception as caption_error:
+                    logger.info(f"Не удалось отредактировать caption: {str(caption_error)}, пробуем редактировать текст.")
+                
+                # Если не получилось с caption, редактируем как обычный текст
+                await context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=message_id_to_edit,
+                    text=success_message,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Обновлено сообщение ID {message_id_to_edit} с промптом для пользователя {user_id}")
+                # Сохраняем ID сообщения для последующего редактирования
+                self.state_manager.set_data(user_id, "prompt_message_id", message_id_to_edit)
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения с промптом: {e}", exc_info=True)
+                
+                # В крайнем случае, отправляем новое фото-сообщение
+                try:
+                    sent_message = await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=WELCOME_IMAGE_URL,
+                        caption=success_message,
+                        reply_markup=reply_markup
+                    )
+                    # Сохраняем ID нового сообщения
+                    self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
+                    self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                    logger.info(f"Отправлено новое сообщение с фото и промптом, ID: {sent_message.message_id}")
+                except Exception as send_err:
+                    logger.error(f"Не удалось отправить даже новое сообщение: {send_err}", exc_info=True)
+                    # В самом крайнем случае просто текстовое сообщение
+                    sent_message = await context.bot.send_message(
+                        chat_id=user_id,
+                        text=success_message,
+                        reply_markup=reply_markup
+                    )
+                    self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
+                    self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+        else:
+            # Нет сохраненных ID сообщений, отправляем новое сообщение с фото
+            try:
+                sent_message = await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=WELCOME_IMAGE_URL,
+                    caption=success_message,
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID нового сообщения
+                self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                logger.info(f"Отправлено новое базовое сообщение с фото и промптом, ID: {sent_message.message_id}")
+            except Exception as e:
+                logger.error(f"Не удалось отправить сообщение с фото: {e}", exc_info=True)
+                # В крайнем случае отправляем обычное текстовое сообщение
+                sent_message = await context.bot.send_message(
+                    chat_id=user_id,
+                    text=success_message,
+                    reply_markup=reply_markup
+                )
+                self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+        
+        # Обновляем состояние
+        self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)
+    
+    async def _delete_message_later(self, context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay_seconds: int):
+        """Удаляет сообщение после указанной задержки"""
+        await asyncio.sleep(delay_seconds)
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            logger.info(f"Автоматически удалено сообщение {message_id} через {delay_seconds} секунд")
+        except Exception as e:
+            logger.error(f"Не удалось удалить сообщение {message_id}: {e}", exc_info=True)
     
     async def _handle_model_name_for_media_group(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, user_id: int) -> None:
         """
