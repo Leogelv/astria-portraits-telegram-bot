@@ -556,9 +556,16 @@ class CallbackHandler:
         
         if not model_id or not prompt:
             logger.error(f"Не удалось получить model_id или prompt для пользователя {user_id}")
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью команды /generate.")
+            
+            # Сохраняем ID сообщения для последующего редактирования
+            try:
+                await query.edit_message_text(
+                    text="❌ Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью кнопки ниже.",
+                    reply_markup=create_main_keyboard()
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения об ошибке: {e}", exc_info=True)
+            
             self.state_manager.reset_state(user_id)
             return
         
@@ -574,12 +581,20 @@ class CallbackHandler:
         
         # Редактируем текущее сообщение, показывая что запрос обрабатывается
         try:
-            await query.edit_message_text(
-                text="⏳ Отправка запроса на генерацию изображений...",
-                reply_markup=None
-            )
+            # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
+            if hasattr(query.message, 'caption') and query.message.caption is not None:
+                await query.edit_message_caption(
+                    caption="⏳ Отправка запроса на генерацию изображений...",
+                    reply_markup=None
+                )
+            else:
+                # Если caption нет, меняем текст
+                await query.edit_message_text(
+                    text="⏳ Отправка запроса на генерацию изображений...",
+                    reply_markup=None
+                )
         except Exception as e:
-            logger.error(f"Ошибка при редактировании сообщения: {e}", exc_info=True)
+            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
         
         # Отправляем запрос на генерацию
         try:
@@ -601,12 +616,20 @@ class CallbackHandler:
                             "Скоро вы сможете создавать умопомрачительные видео, анимации и многое другое!"
                         )
                         
-                        # Обновляем сообщение об успешной отправке
+                        # Обновляем то же самое сообщение с информацией об успехе
                         try:
-                            await query.edit_message_text(
-                                text=success_message,
-                                reply_markup=reply_markup
-                            )
+                            # Проверяем, есть ли caption в сообщении
+                            if hasattr(query.message, 'caption') and query.message.caption is not None:
+                                await query.edit_message_caption(
+                                    caption=success_message,
+                                    reply_markup=reply_markup
+                                )
+                            else:
+                                # Если caption нет, меняем текст
+                                await query.edit_message_text(
+                                    text=success_message,
+                                    reply_markup=reply_markup
+                                )
                         except Exception as edit_err:
                             logger.error(f"Ошибка при обновлении сообщения: {edit_err}", exc_info=True)
                             
@@ -621,11 +644,21 @@ class CallbackHandler:
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
                         
+                        error_message = f"❌ Произошла ошибка при отправке запроса на генерацию изображений. Пожалуйста, попробуйте еще раз."
+                        
                         try:
-                            await query.edit_message_text(
-                                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений. Пожалуйста, попробуйте еще раз.",
-                                reply_markup=reply_markup
-                            )
+                            # Проверяем, есть ли caption в сообщении
+                            if hasattr(query.message, 'caption') and query.message.caption is not None:
+                                await query.edit_message_caption(
+                                    caption=error_message,
+                                    reply_markup=reply_markup
+                                )
+                            else:
+                                # Если caption нет, меняем текст
+                                await query.edit_message_text(
+                                    text=error_message,
+                                    reply_markup=reply_markup
+                                )
                         except Exception as edit_err:
                             logger.error(f"Ошибка при обновлении сообщения об ошибке: {edit_err}", exc_info=True)
         except Exception as e:
@@ -638,11 +671,21 @@ class CallbackHandler:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            error_message = f"❌ Произошла ошибка при отправке запроса на генерацию изображений. Пожалуйста, попробуйте еще раз."
+            
             try:
-                await query.edit_message_text(
-                    text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений. Пожалуйста, попробуйте еще раз.",
-                    reply_markup=reply_markup
-                )
+                # Проверяем, есть ли caption в сообщении
+                if hasattr(query.message, 'caption') and query.message.caption is not None:
+                    await query.edit_message_caption(
+                        caption=error_message,
+                        reply_markup=reply_markup
+                    )
+                else:
+                    # Если caption нет, меняем текст
+                    await query.edit_message_text(
+                        text=error_message,
+                        reply_markup=reply_markup
+                    )
             except Exception as edit_err:
                 logger.error(f"Ошибка при обновлении сообщения об ошибке: {edit_err}", exc_info=True)
         
@@ -769,24 +812,51 @@ class CallbackHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Отправляем инструкции по загрузке фотографий с использованием константы из config.py
+        # Редактируем то же самое сообщение
         try:
-            await context.bot.send_photo(
-                chat_id=user_id,
-                photo=INSTRUCTIONS_IMAGE_URL,
-                caption=UPLOAD_PHOTOS_MESSAGE,
-                reply_markup=reply_markup
-            )
-            logger.info(f"Отправлено фото с инструкциями по загрузке фотографий пользователю {user_id}")
+            # Проверяем, есть ли caption в сообщении
+            if hasattr(query.message, 'caption') and query.message.caption is not None:
+                await query.edit_message_caption(
+                    caption=UPLOAD_PHOTOS_MESSAGE,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Обновлено сообщение с инструкциями по загрузке фото для пользователя {user_id}")
+            else:
+                # Если caption нет, меняем текст
+                await query.edit_message_text(
+                    text=UPLOAD_PHOTOS_MESSAGE,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Обновлено текстовое сообщение с инструкциями для пользователя {user_id}")
+                
+            # Сохраняем ID сообщения для последующего редактирования (если не было сохранено ранее)
+            self.state_manager.set_data(user_id, "base_message_id", query.message.message_id)
+            
         except Exception as e:
-            logger.error(f"Ошибка при отправке фото с инструкциями: {e}", exc_info=True)
-            # Если не удалось отправить фото, отправляем текстовое сообщение
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=UPLOAD_PHOTOS_MESSAGE,
-                reply_markup=reply_markup
-            )
-            logger.info(f"Отправлено текстовое сообщение с инструкциями пользователю {user_id}")
+            logger.error(f"Ошибка при обновлении сообщения с инструкциями: {e}", exc_info=True)
+            # В случае ошибки отправляем новое сообщение с фото
+            try:
+                sent_message = await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=INSTRUCTIONS_IMAGE_URL,
+                    caption=UPLOAD_PHOTOS_MESSAGE,
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID нового сообщения
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                logger.info(f"Отправлено новое фото с инструкциями пользователю {user_id}")
+            except Exception as send_err:
+                logger.error(f"Ошибка при отправке фото с инструкциями: {send_err}", exc_info=True)
+                
+                # Если и это не удалось, отправляем текстовое сообщение
+                sent_message = await context.bot.send_message(
+                    chat_id=user_id,
+                    text=UPLOAD_PHOTOS_MESSAGE,
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID нового сообщения
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                logger.info(f"Отправлено текстовое сообщение с инструкциями пользователю {user_id}")
     
     async def _handle_start_training(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int, callback_data: str) -> None:
         """

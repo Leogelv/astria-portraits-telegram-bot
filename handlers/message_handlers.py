@@ -84,10 +84,42 @@ class MessageHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            f"Название модели: {text}\n\nТеперь выберите тип модели:",
-            reply_markup=reply_markup
-        )
+        # Получаем ID сообщения для редактирования
+        base_message_id = self.state_manager.get_data(user_id, "base_message_id")
+        
+        if base_message_id:
+            try:
+                # Редактируем сообщение с информацией о имени модели и выбором типа
+                await context.bot.edit_message_caption(
+                    chat_id=user_id,
+                    message_id=base_message_id,
+                    caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Обновлено сообщение с запросом типа модели для пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения с именем модели: {e}", exc_info=True)
+                # В случае ошибки отправляем новое сообщение
+                sent_message = await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=WELCOME_IMAGE_URL,
+                    caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID нового сообщения
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                logger.info(f"Отправлено новое сообщение с запросом типа модели пользователю {user_id}")
+        else:
+            # Если нет сохраненного ID сообщения, отправляем новое
+            sent_message = await context.bot.send_photo(
+                chat_id=user_id,
+                photo=WELCOME_IMAGE_URL,
+                caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
+                reply_markup=reply_markup
+            )
+            # Сохраняем ID нового сообщения
+            self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+            logger.info(f"Отправлено новое сообщение с запросом типа модели пользователю {user_id}")
         
         # Устанавливаем состояние выбора типа модели
         self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
