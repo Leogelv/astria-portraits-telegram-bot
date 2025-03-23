@@ -70,6 +70,22 @@ class CallbackHandler:
             await self._handle_start_training(update, context, query, user_id, callback_data)
         elif callback_data == "cancel_training":
             await self._handle_cancel_training(update, context, query, user_id)
+        elif callback_data == "cmd_video":
+            await self._handle_video_command(update, context, query, user_id)
+        elif callback_data.startswith("videomodel_"):
+            await self._handle_video_model_selection(update, context, query, user_id, callback_data)
+        elif callback_data == "vidimg_prev":
+            await self._handle_image_navigation(update, context, query, user_id, "prev")
+        elif callback_data == "vidimg_next":
+            await self._handle_image_navigation(update, context, query, user_id, "next")
+        elif callback_data == "vidimg_info":
+            # Просто информационная кнопка, ничего не делаем
+            pass
+        elif callback_data == "start_video_generation":
+            await self._handle_start_video_generation(update, context, query, user_id)
+        elif callback_data == "cancel_video":
+            # Отмена создания видео - просто возвращаемся в главное меню
+            await self._handle_cancel_video(update, context, query, user_id)
         else:
             # Неизвестный callback
             logger.warning(f"Получен неизвестный callback от пользователя {user_id}: {callback_data}")
@@ -80,7 +96,7 @@ class CallbackHandler:
     
     async def _handle_command_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int, callback_data: str) -> None:
         """
-        Обработка callback-команд (cmd_*)
+        Обработка callback-запросов команд
         
         Args:
             update (Update): Объект обновления Telegram
@@ -89,36 +105,94 @@ class CallbackHandler:
             user_id (int): ID пользователя
             callback_data (str): Данные callback-запроса
         """
-        # Обработка команд из кнопок
         command = callback_data.split("_")[1]
-        
         logger.info(f"Обработка команды из callback: {command} для пользователя {user_id}")
         
-        try:
-            if command == "train":
-                await self._handle_cmd_train(update, context, query, user_id)
-            elif command == "start":
-                await self._handle_cmd_start(update, context, query, user_id)
-            elif command == "generate":
-                await self._handle_cmd_generate(update, context, query, user_id)
-            elif command == "credits":
-                await self._handle_cmd_credits(update, context, query, user_id)
-            elif command == "models":
-                await self._handle_cmd_models(update, context, query, user_id)
-            elif command == "video":
-                await self._handle_cmd_video(update, context, query, user_id)
-            else:
-                logger.warning(f"Неизвестная команда в callback: {command}")
-                await query.answer(f"Неизвестная команда: {command}")
-        except Exception as e:
-            logger.error(f"Ошибка при обработке callback команды {command}: {e}", exc_info=True)
+        if command == "start":
+            # Сбрасываем состояние пользователя
+            self.state_manager.reset_state(user_id)
+            
+            # Проверяем, есть ли у пользователя модели (для кнопки создания видео)
+            has_models = False
             try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"❌ Произошла ошибка при выполнении команды. "
+                data = {"telegram_id": user_id}
+                async with aiohttp.ClientSession() as session:
+                    async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                        if response.status == 200:
+                            models = await response.json()
+                            has_models = len(models) > 0
+                            logger.info(f"Проверка моделей для пользователя {user_id}: {len(models)} моделей")
+            except Exception as e:
+                logger.error(f"Исключение при проверке моделей через API: {e}", exc_info=True)
+            
+            # Создаем основную клавиатуру
+            keyboard = [
+                [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
+                [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
+                [InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")]
+            ]
+            
+            # Добавляем кнопку создания видео, если у пользователя есть модели
+            if has_models:
+                keyboard.append([InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")])
+                
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Обновляем сообщение
+            try:
+                # Проверяем, есть ли caption в сообщении
+                if hasattr(query.message, 'caption') and query.message.caption is not None:
+                    await query.edit_message_caption(
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                else:
+                    # Если caption нет, меняем текст
+                    await query.edit_message_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                logger.info(f"Обновлено сообщение с главным меню для пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения в cmd_start: {e}", exc_info=True)
+                try:
+                    # В случае ошибки отправляем новое сообщение с меню
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=WELCOME_IMAGE_URL,
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
+                except Exception as send_err:
+                    logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
+        
+        elif command == "train":
+            await self._handle_cmd_train(update, context, query, user_id)
+        
+        elif command == "generate":
+            await self._handle_cmd_generate(update, context, query, user_id)
+        
+        elif command == "credits":
+            await self._handle_cmd_credits(update, context, query, user_id)
+        
+        elif command == "models":
+            await self._handle_cmd_models(update, context, query, user_id)
+            
+        elif command == "video":
+            await self._handle_video_command(update, context, query, user_id)
+        
+        else:
+            logger.warning(f"Неизвестная команда в callback: {command}")
+            await query.answer(f"Неизвестная команда: {command}")
+            # Отправляем сообщение с доступными командами
+            try:
+                await query.edit_message_text(
+                    text="Неизвестная команда. Пожалуйста, используйте одну из доступных команд:",
+                    reply_markup=create_main_keyboard()
                 )
-            except Exception as send_error:
-                logger.error(f"Не удалось отправить сообщение об ошибке: {send_error}", exc_info=True)
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения о неизвестной команде: {e}", exc_info=True)
     
     async def _handle_cmd_train(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """
@@ -1113,3 +1187,395 @@ class CallbackHandler:
                     text=message,
                     reply_markup=reply_markup
                 )
+
+    async def _handle_video_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
+        """
+        Обработка команды создания видео
+        
+        Args:
+            update (Update): Объект обновления Telegram
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback_query
+            user_id (int): ID пользователя
+        """
+        logger.info(f"Пользователь {user_id} запросил создание видео")
+        
+        # Сбрасываем предыдущее состояние
+        self.state_manager.reset_state(user_id)
+        self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_FOR_VIDEO)
+        
+        # Получаем модели пользователя через API запрос
+        try:
+            data = {"telegram_id": user_id}
+            async with aiohttp.ClientSession() as session:
+                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                    if response.status == 200:
+                        models = await response.json()
+                        logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
+                    else:
+                        logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                        models = []
+        except Exception as e:
+            logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
+            models = []
+        
+        if not models:
+            # Отправляем сообщение об отсутствии моделей
+            try:
+                await query.edit_message_text(
+                    text="У вас пока нет обученных моделей. Сначала создайте модель с помощью команды 'Обучить модель'.",
+                    reply_markup=create_main_keyboard()
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при редактировании сообщения: {e}", exc_info=True)
+                # В случае ошибки отправляем новое сообщение
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="У вас пока нет обученных моделей. Сначала создайте модель с помощью команды 'Обучить модель'.",
+                        reply_markup=create_main_keyboard()
+                    )
+                except Exception as send_err:
+                    logger.error(f"Ошибка при отправке сообщения: {send_err}", exc_info=True)
+            return
+        
+        # Формируем клавиатуру для выбора модели
+        keyboard = []
+        for model in models:
+            model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
+            model_id = model.get("model_id", "unknown")
+            keyboard.append([InlineKeyboardButton(model_name, callback_data=f"videomodel_{model_id}")])
+        
+        # Добавляем кнопку отмены
+        keyboard.append([InlineKeyboardButton("❌ Отменить", callback_data="cancel_video")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Отправляем сообщение с выбором модели
+        try:
+            await query.edit_message_text(
+                text="Выберите модель для создания видео:",
+                reply_markup=reply_markup
+            )
+            logger.info(f"Отправлен список моделей для видео пользователю {user_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при редактировании сообщения: {e}", exc_info=True)
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id, 
+                    text="Выберите модель для создания видео:",
+                    reply_markup=reply_markup
+                )
+            except Exception as send_err:
+                logger.error(f"Ошибка при отправке сообщения с моделями: {send_err}", exc_info=True)
+
+    async def _handle_video_model_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int, callback_data: str) -> None:
+        """
+        Обработка выбора модели для создания видео
+        
+        Args:
+            update (Update): Объект обновления Telegram
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback_query
+            user_id (int): ID пользователя
+            callback_data (str): Данные callback-запроса, содержащие ID модели
+        """
+        try:
+            model_id_str = callback_data.split("_")[1]
+            model_id = int(model_id_str)
+            logger.info(f"Пользователь {user_id} выбрал модель {model_id} для создания видео")
+            
+            # Сохраняем ID модели
+            self.state_manager.set_data(user_id, "video_model_id", model_id)
+            
+            # Отправляем запрос для получения изображений
+            try:
+                data = {"telegram_id": user_id, "model_id": model_id}
+                async with aiohttp.ClientSession() as session:
+                    async with session.post('https://n8n2.supashkola.ru/webhook/my_imgs', json=data) as response:
+                        if response.status == 200:
+                            images = await response.json()
+                            logger.info(f"Получены изображения для пользователя {user_id}, модель {model_id}: {len(images)} изображений")
+                            
+                            if not images:
+                                # Нет изображений для выбранной модели
+                                await query.edit_message_text(
+                                    text="У выбранной модели нет сгенерированных изображений. Сначала создайте изображения с этой моделью.",
+                                    reply_markup=create_main_keyboard()
+                                )
+                                self.state_manager.reset_state(user_id)
+                                return
+                            
+                            # Сохраняем список изображений и текущий индекс
+                            self.state_manager.set_data(user_id, "video_images", images)
+                            self.state_manager.set_data(user_id, "video_current_image_index", 0)
+                            
+                            # Устанавливаем состояние выбора изображения
+                            self.state_manager.set_state(user_id, UserState.SELECTING_IMAGE_FOR_VIDEO)
+                            
+                            # Показываем первое изображение с кнопками навигации
+                            await self._show_image_selection(context, query, user_id, images, 0)
+                        else:
+                            logger.error(f"Ошибка при получении изображений через API: {response.status}")
+                            await query.edit_message_text(
+                                text="Произошла ошибка при получении изображений. Пожалуйста, попробуйте позже.",
+                                reply_markup=create_main_keyboard()
+                            )
+                            self.state_manager.reset_state(user_id)
+            except Exception as e:
+                logger.error(f"Исключение при получении изображений: {e}", exc_info=True)
+                await query.edit_message_text(
+                    text="Произошла ошибка при получении изображений. Пожалуйста, попробуйте позже.",
+                    reply_markup=create_main_keyboard()
+                )
+                self.state_manager.reset_state(user_id)
+        except (ValueError, IndexError) as e:
+            logger.error(f"Ошибка при обработке ID модели: {e}", exc_info=True)
+            await query.edit_message_text(
+                text="Ошибка при выборе модели. Пожалуйста, попробуйте снова.",
+                reply_markup=create_main_keyboard()
+            )
+            self.state_manager.reset_state(user_id)
+
+    async def _show_image_selection(self, context: ContextTypes.DEFAULT_TYPE, query, user_id: int, images: list, current_index: int) -> None:
+        """
+        Показывает изображение с кнопками навигации
+        
+        Args:
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback_query
+            user_id (int): ID пользователя
+            images (list): Список URL изображений
+            current_index (int): Текущий индекс изображения
+        """
+        # Убедимся, что индекс в допустимых пределах
+        if current_index < 0:
+            current_index = len(images) - 1
+        elif current_index >= len(images):
+            current_index = 0
+        
+        # Создаем клавиатуру с кнопками навигации и создания видео
+        keyboard = [
+            [
+                InlineKeyboardButton("⬅️", callback_data="vidimg_prev"),
+                InlineKeyboardButton(f"{current_index + 1}/{len(images)}", callback_data="vidimg_info"),
+                InlineKeyboardButton("➡️", callback_data="vidimg_next")
+            ],
+            [InlineKeyboardButton("🎬 Оживить меня в видео!", callback_data="start_video_generation")],
+            [InlineKeyboardButton("❌ Отменить", callback_data="cancel_video")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Получаем URL текущего изображения
+        image_url = images[current_index]
+        self.state_manager.set_data(user_id, "video_current_image_index", current_index)
+        self.state_manager.set_data(user_id, "video_current_image_url", image_url)
+        
+        try:
+            # Удаляем предыдущее сообщение
+            try:
+                await query.delete_message()
+            except Exception:
+                pass  # Игнорируем ошибки удаления
+            
+            # Отправляем новое сообщение с изображением
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=image_url,
+                caption=f"Просмотр изображения {current_index + 1} из {len(images)}.\nВыберите изображение для создания видео или нажмите на кнопки навигации для просмотра других изображений.",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при отправке изображения: {e}", exc_info=True)
+            try:
+                # В случае ошибки отправляем текстовое сообщение
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"Ошибка при загрузке изображения. URL: {image_url}\nПожалуйста, попробуйте выбрать другое изображение.",
+                    reply_markup=reply_markup
+                )
+            except Exception as send_err:
+                logger.error(f"Ошибка при отправке сообщения об ошибке: {send_err}", exc_info=True)
+
+    async def _handle_image_navigation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int, direction: str) -> None:
+        """
+        Обработка навигации по изображениям (предыдущее/следующее)
+        
+        Args:
+            update (Update): Объект обновления Telegram
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback_query
+            user_id (int): ID пользователя
+            direction (str): Направление навигации ('prev' или 'next')
+        """
+        # Получаем список изображений и текущий индекс
+        images = self.state_manager.get_data(user_id, "video_images")
+        current_index = self.state_manager.get_data(user_id, "video_current_image_index")
+        
+        if not images or current_index is None:
+            logger.error(f"Не найдены данные о изображениях для пользователя {user_id}")
+            await query.edit_message_text(
+                text="Ошибка при навигации по изображениям. Пожалуйста, начните заново.",
+                reply_markup=create_main_keyboard()
+            )
+            self.state_manager.reset_state(user_id)
+            return
+        
+        # Определяем новый индекс
+        if direction == "prev":
+            new_index = current_index - 1
+            if new_index < 0:
+                new_index = len(images) - 1
+        else:  # next
+            new_index = current_index + 1
+            if new_index >= len(images):
+                new_index = 0
+        
+        # Показываем изображение с новым индексом
+        await self._show_image_selection(context, query, user_id, images, new_index)
+
+    async def _handle_start_video_generation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
+        """
+        Обработка запуска генерации видео
+        
+        Args:
+            update (Update): Объект обновления Telegram
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback_query
+            user_id (int): ID пользователя
+        """
+        # Получаем URL выбранного изображения
+        image_url = self.state_manager.get_data(user_id, "video_current_image_url")
+        model_id = self.state_manager.get_data(user_id, "video_model_id")
+        
+        if not image_url or not model_id:
+            logger.error(f"Не найдены данные о выбранном изображении для пользователя {user_id}")
+            await query.edit_message_caption(
+                caption="Ошибка: не найдена информация о выбранном изображении. Пожалуйста, попробуйте выбрать изображение заново.",
+                reply_markup=create_main_keyboard()
+            )
+            self.state_manager.reset_state(user_id)
+            return
+        
+        logger.info(f"Пользователь {user_id} запустил генерацию видео для изображения {image_url}")
+        
+        # Создаем данные для запроса
+        data = {
+            "image_url": image_url,
+            "telegram_id": user_id,
+            "model_id": model_id
+        }
+        
+        # Создаем клавиатуру с кнопкой возврата в главное меню
+        keyboard = [
+            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Отправляем запрос на генерацию видео
+        try:
+            # Сначала редактируем сообщение, чтобы показать процесс
+            await query.edit_message_caption(
+                caption="⏳ Отправка запроса на генерацию видео...",
+                reply_markup=None
+            )
+            
+            # Отправляем запрос
+            async with aiohttp.ClientSession() as session:
+                async with session.post('https://n8n2.supashkola.ru/webhook/gen_vid', json=data) as response:
+                    if response.status == 200:
+                        logger.info(f"Запрос на генерацию видео для пользователя {user_id} успешно отправлен")
+                        
+                        success_message = (
+                            "✅ Запрос на генерацию видео успешно отправлен!\n\n"
+                            "Мы уведомим вас, когда видео будет готово.\n\n"
+                            "💫 Этот бот создан для креаторов и будет становиться лучше с каждым обновлением!"
+                        )
+                        
+                        await query.edit_message_caption(
+                            caption=success_message,
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        response_text = await response.text()
+                        logger.error(f"Ошибка при отправке запроса на генерацию видео: {response.status}, {response_text}")
+                        
+                        error_message = f"❌ Произошла ошибка при отправке запроса на генерацию видео. Пожалуйста, попробуйте еще раз."
+                        
+                        # Создаем клавиатуру с кнопкой повтора
+                        keyboard = [
+                            [InlineKeyboardButton("🔄 Повторить", callback_data="cmd_video")],
+                            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+                        ]
+                        error_reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await query.edit_message_caption(
+                            caption=error_message,
+                            reply_markup=error_reply_markup
+                        )
+        except Exception as e:
+            logger.error(f"Исключение при отправке запроса на генерацию видео: {e}", exc_info=True)
+            
+            # Создаем клавиатуру с кнопкой повтора
+            keyboard = [
+                [InlineKeyboardButton("🔄 Повторить", callback_data="cmd_video")],
+                [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+            ]
+            error_reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            try:
+                await query.edit_message_caption(
+                    caption=f"❌ Произошла ошибка при отправке запроса на генерацию видео: {str(e)}. Пожалуйста, попробуйте еще раз.",
+                    reply_markup=error_reply_markup
+                )
+            except Exception as edit_err:
+                logger.error(f"Ошибка при редактировании сообщения: {edit_err}", exc_info=True)
+        
+        # Сбрасываем состояние пользователя
+        self.state_manager.reset_state(user_id)
+
+    async def _handle_cancel_video(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
+        """
+        Обработка отмены создания видео
+        
+        Args:
+            update (Update): Объект обновления Telegram
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback_query
+            user_id (int): ID пользователя
+        """
+        logger.info(f"Пользователь {user_id} отменил создание видео")
+        
+        # Сбрасываем состояние пользователя
+        self.state_manager.reset_state(user_id)
+        
+        # Используем функцию для создания основной клавиатуры
+        reply_markup = create_main_keyboard()
+        
+        # Отправляем сообщение об отмене и возвращаемся в главное меню
+        try:
+            # Проверяем, есть ли caption в сообщении
+            if hasattr(query.message, 'caption') and query.message.caption is not None:
+                await query.edit_message_caption(
+                    caption="Создание видео отменено.\n\nВыберите действие:",
+                    reply_markup=reply_markup
+                )
+            else:
+                # Если caption нет, меняем текст
+                await query.edit_message_text(
+                    text="Создание видео отменено.\n\nВыберите действие:",
+                    reply_markup=reply_markup
+                )
+            logger.info(f"Обновлено сообщение для пользователя {user_id} после отмены создания видео")
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении сообщения отмены: {e}", exc_info=True)
+            # В случае ошибки отправляем новое сообщение с меню
+            try:
+                await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=WELCOME_IMAGE_URL,
+                    caption=WELCOME_MESSAGE,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
+            except Exception as send_err:
+                logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)

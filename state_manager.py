@@ -16,6 +16,8 @@ class UserState(Enum):
     SELECTING_MODEL_TYPE = auto()  # Добавлено для выбора типа модели
     ENTERING_MODEL_NAME_FOR_MEDIA_GROUP = auto()  # Состояние для ввода имени модели при обработке медиагруппы
     SELECTING_MODEL_TYPE_FOR_MEDIA_GROUP = auto()  # Выбор типа модели для медиагруппы
+    SELECTING_MODEL_FOR_VIDEO = auto()  # Выбор модели для создания видео
+    SELECTING_IMAGE_FOR_VIDEO = auto()  # Выбор изображения для создания видео
 
 
 class StateManager:

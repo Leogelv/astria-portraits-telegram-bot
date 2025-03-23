@@ -38,8 +38,7 @@ def create_main_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
         [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
-        [InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")],
-        [InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")]
+        [InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")]
     ]
     return InlineKeyboardMarkup(keyboard)
 

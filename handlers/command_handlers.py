@@ -75,40 +75,63 @@ class CommandHandlers:
         first_name = update.effective_user.first_name or ""
         last_name = update.effective_user.last_name or ""
         
-        logger.info(f"Пользователь {user_id} ({username}) запустил бота")
+        # Сбрасываем состояние пользователя
+        self.state_manager.reset_state(user_id)
         
         # Регистрируем пользователя
         await self.register_user(user_id, username, first_name, last_name)
         
-        # Сбрасываем состояние пользователя
-        self.state_manager.reset_state(user_id)
-        
-        # Используем функцию для создания основной клавиатуры
-        reply_markup = create_main_keyboard()
-        
-        # Отправляем приветственное сообщение с инструкциями
+        # Проверяем, есть ли у пользователя модели (для кнопки создания видео)
+        has_models = False
         try:
-            await update.message.reply_photo(
+            data = {"telegram_id": user_id}
+            async with aiohttp.ClientSession() as session:
+                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                    if response.status == 200:
+                        models = await response.json()
+                        has_models = len(models) > 0
+                        logger.info(f"Проверка моделей для пользователя {user_id}: {len(models)} моделей")
+        except Exception as e:
+            logger.error(f"Исключение при проверке моделей через API: {e}", exc_info=True)
+        
+        # Создаем основную клавиатуру
+        keyboard = [
+            [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
+            [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
+            [InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")]
+        ]
+        
+        # Добавляем кнопку создания видео, если у пользователя есть модели
+        if has_models:
+            keyboard.append([InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")])
+            
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Отправляем welcome сообщение с фото
+        try:
+            await context.bot.send_photo(
+                chat_id=user_id,
                 photo=WELCOME_IMAGE_URL,
                 caption=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
-            logger.info(f"Отправлено приветственное сообщение пользователю {user_id}")
+            logger.info(f"Отправлено welcome сообщение пользователю {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка при отправке приветственного сообщения: {e}", exc_info=True)
+            logger.error(f"Ошибка при отправке welcome сообщения: {e}", exc_info=True)
             # Если не удалось отправить фото, отправляем текстовое сообщение
             await update.message.reply_text(
-                WELCOME_MESSAGE,
+                text=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
-            logger.info(f"Отправлено текстовое приветственное сообщение пользователю {user_id}")
+            logger.info(f"Отправлено текстовое welcome сообщение пользователю {user_id}")
         
         # Удаляем сообщение пользователя для чистоты чата
-        try:
-            await delete_message(context, user_id, update.message.message_id)
-            logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
-        except Exception as e:
-            logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
+        if update.message:
+            try:
+                await update.message.delete()
+                logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /help"""
@@ -284,33 +307,70 @@ class CommandHandlers:
             logger.error(f"Исключение при получении кредитов через API: {e}", exc_info=True)
             credits = 0
         
+        # Проверяем, есть ли у пользователя модели (для кнопки создания видео)
+        has_models = False
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                    if response.status == 200:
+                        models = await response.json()
+                        has_models = len(models) > 0
+                        logger.info(f"Проверка моделей для пользователя {user_id}: {len(models)} моделей")
+        except Exception as e:
+            logger.error(f"Исключение при проверке моделей через API: {e}", exc_info=True)
+        
         message = f"💰 У вас {credits} кредитов.\n\n" \
                    f"Каждое обучение модели стоит 1 кредит.\n" \
-                   f"Каждая генерация изображений стоит 1 кредит."
+                   f"Каждая генерация изображений стоит 1 кредит.\n" \
+                   f"Создание видео стоит 1 кредит."
         
-        # Создаем клавиатуру с кнопкой "Назад"
+        # Создаем основную клавиатуру
         keyboard = [
-            [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
+            [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
+            [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
         ]
+        
+        # Добавляем кнопку создания видео, если у пользователя есть модели
+        if has_models:
+            keyboard.append([InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")])
+        
+        keyboard.append([InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Отправляем сообщение с информацией о кредитах
-        try:
-            await update.message.reply_text(
-                message,
+        if update.callback_query:
+            # Если это callback, то редактируем текущее сообщение
+            try:
+                await update.callback_query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Обновлено сообщение о кредитах через callback для пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения через callback: {e}", exc_info=True)
+                # В случае ошибки отправляем новое сообщение
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлено новое сообщение о кредитах пользователю {user_id}")
+        else:
+            # Если это команда, то отправляем новое сообщение
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=message,
                 reply_markup=reply_markup
             )
-            logger.info(f"Отправлено сообщение с информацией о кредитах пользователю {user_id}")
-            
-            # Удаляем сообщение пользователя для чистоты чата
-            if update.message:
-                try:
-                    await update.message.delete()
-                    logger.info(f"Удалено сообщение команды /credits от пользователя {user_id}")
-                except Exception as e:
-                    logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Ошибка при отправке сообщения о кредитах: {e}", exc_info=True)
+            logger.info(f"Отправлено сообщение о кредитах пользователю {user_id}")
+        
+        # Удаляем сообщение пользователя для чистоты чата, если это не callback
+        if update.message:
+            try:
+                await update.message.delete()
+                logger.info(f"Удалено сообщение команды /credits от пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
 
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /cancel"""
