@@ -674,7 +674,7 @@ class AstriaBot:
             # Получаем ID модели
             model_id = self.state_manager.get_data(user_id, "model_id")
             
-            # Создаем клавиатуру с кнопкой для запуска генерации
+            # Создаем клавиатуру с кнопками для запуска генерации
             keyboard = [
                 [InlineKeyboardButton("🚀 Запустить генерацию", callback_data="start_generation")],
                 [InlineKeyboardButton("✏️ Изменить промпт", callback_data="edit_prompt")],
@@ -682,11 +682,11 @@ class AstriaBot:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Получаем и сохраняем message_id сообщения с запросом промпта
+            # Получаем message_id сообщения с запросом промпта
             prompt_message_id = self.state_manager.get_data(user_id, "prompt_message_id")
             
             if prompt_message_id:
-                # Редактируем сообщение с запросом промпта вместо отправки нового
+                # Редактируем существующее сообщение с запросом промпта
                 try:
                     await context.bot.edit_message_text(
                         chat_id=user_id,
@@ -694,22 +694,33 @@ class AstriaBot:
                         text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
                         reply_markup=reply_markup
                     )
-                    logger.info(f"Обновлено сообщение с подтверждением промпта для пользователя {user_id}")
+                    logger.info(f"Обновлено сообщение с промптом для пользователя {user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка при обновлении сообщения с промптом: {e}", exc_info=True)
-                    # В случае ошибки отправляем новое сообщение
-                    await update.message.reply_text(
+                    # Отправляем новое сообщение только в случае ошибки
+                    try:
+                        sent_message = await context.bot.send_message(
+                            chat_id=user_id,
+                            text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+                            reply_markup=reply_markup
+                        )
+                        # Обновляем ID сообщения
+                        self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
+                        logger.info(f"Отправлено новое сообщение с промптом пользователю {user_id}")
+                    except Exception as send_error:
+                        logger.error(f"Не удалось отправить сообщение с промптом: {send_error}", exc_info=True)
+            else:
+                # Если нет сохраненного ID сообщения, отправляем новое
+                try:
+                    sent_message = await update.message.reply_text(
                         f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
                         reply_markup=reply_markup
                     )
-                    logger.info(f"Отправлено новое сообщение с подтверждением промпта пользователю {user_id}")
-            else:
-                # Если нет сохраненного ID сообщения, отправляем новое
-                await update.message.reply_text(
-                    f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id}")
+                    # Сохраняем ID нового сообщения
+                    self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
+                    logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id}")
+                except Exception as e:
+                    logger.error(f"Не удалось отправить сообщение с промптом: {e}", exc_info=True)
             
             # Обновляем состояние
             self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)
@@ -721,487 +732,31 @@ class AstriaBot:
             except Exception as e:
                 logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
         
-        elif state == UserState.ENTERING_MODEL_NAME_FOR_MEDIA_GROUP:
-            # Пользователь вводит имя модели для медиагруппы
-            if len(text) > 50:
-                await update.message.reply_text("Имя модели слишком длинное (максимум 50 символов). Пожалуйста, введите более короткое имя.")
+        elif state == UserState.GENERATING_IMAGES:
+            # Пользователь вводит текст для генерации изображений
+            if len(text) > 500:
+                await update.message.reply_text("Текст слишком длинный (максимум 500 символов). Пожалуйста, введите более короткий текст.")
                 return
             
-            # Сохраняем имя модели
-            self.state_manager.set_data(user_id, "model_name", text)
-            logger.info(f"Пользователь {user_id} ввел имя модели для медиагруппы: {text}")
+            # Сохраняем текст
+            self.state_manager.set_data(user_id, "prompt", text)
+            logger.info(f"Пользователь {user_id} ввел текст: {text}")
             
-            # Создаем клавиатуру для выбора типа модели
-            keyboard = [
-                [
-                    InlineKeyboardButton("Мужская", callback_data="mgtype_male"),
-                    InlineKeyboardButton("Женская", callback_data="mgtype_female")
-                ],
-                [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                f"Название модели: {text}\n\nТеперь выберите тип модели:",
-                reply_markup=reply_markup
-            )
-            
-            # Устанавливаем состояние выбора типа модели для медиагруппы
-            self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE_FOR_MEDIA_GROUP)
-            
-            # Удаляем сообщение пользователя для чистоты чата
-            try:
-                await update.message.delete()
-                logger.info(f"Удалено текстовое сообщение с именем модели для медиагруппы от пользователя {user_id}")
-            except Exception as e:
-                logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
-        
-        else:
-            # Пользователь отправил текст вне контекста команды
-            await update.message.reply_text(
-                "Я не понимаю этой команды. Пожалуйста, воспользуйтесь одной из доступных команд:\n"
-                "/start - Начать работу с ботом\n"
-                "/help - Получить справку\n"
-                "/train - Обучить новую модель\n"
-                "/generate - Сгенерировать изображения"
-            )
-            
-            # Удаляем сообщение пользователя для чистоты чата
-            try:
-                await update.message.delete()
-                logger.info(f"Удалено текстовое сообщение вне контекста от пользователя {user_id}")
-            except Exception as e:
-                logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
-
-    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработчик callback-запросов"""
-        if not update.callback_query:
-            logger.error("Получен пустой callback_query в handle_callback")
-            return
-            
-        query = update.callback_query
-        user_id = query.from_user.id
-        callback_data = query.data
-        
-        logger.info(f"Получен callback от пользователя {user_id}: {callback_data}")
-        
-        # Отвечаем на callback-запрос сразу, чтобы убрать часы загрузки в Telegram
-        try:
-            await query.answer()
-        except Exception as e:
-            logger.error(f"Ошибка при ответе на callback: {e}")
-        
-        # Обрабатываем callback-данные
-        if callback_data.startswith("cmd_"):
-            # Обработка команд из кнопок
-            command = callback_data.split("_")[1]
-            
-            logger.info(f"Обработка команды из callback: {command} для пользователя {user_id}")
-            
-            try:
-                if command == "train":
-                    logger.info(f"Начинаю обработку команды train из callback для пользователя {user_id}")
-                    
-                    # Создаем клавиатуру с кнопкой отмены
-                    keyboard = [
-                        [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    # Устанавливаем состояние ввода имени модели
-                    self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
-                    self.state_manager.clear_data(user_id)
-                    logger.info(f"Установлено состояние ENTERING_MODEL_NAME для пользователя {user_id}")
-                    
-                    # Пробуем изменить текущее сообщение
-                    try:
-                        await query.edit_message_caption(
-                            caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Обновлено сообщение для пользователя {user_id}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
-                        # В случае ошибки отправляем новое сообщение
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Отправлен запрос имени модели пользователю {user_id}")
-                
-                elif command == "start":
-                    logger.info(f"Начинаю обработку команды start из callback для пользователя {user_id}")
-                    
-                    # Сбрасываем состояние пользователя
-                    self.state_manager.reset_state(user_id)
-                    
-                    # Используем функцию для создания основной клавиатуры
-                    reply_markup = create_main_keyboard()
-                    
-                    # Редактируем текущее сообщение
-                    try:
-                        # Проверяем, есть ли caption в сообщении
-                        if hasattr(query.message, 'caption') and query.message.caption is not None:
-                            await query.edit_message_caption(
-                                caption=WELCOME_MESSAGE,
-                                reply_markup=reply_markup
-                            )
-                        else:
-                            # Если caption нет, меняем текст
-                            await query.edit_message_text(
-                                text=WELCOME_MESSAGE,
-                                reply_markup=reply_markup
-                            )
-                        logger.info(f"Обновлено сообщение с главным меню для пользователя {user_id}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при обновлении сообщения в cmd_start: {e}", exc_info=True)
-                        # В случае ошибки отправляем новое фото с меню
-                        try:
-                            await context.bot.send_photo(
-                                chat_id=user_id,
-                                photo=WELCOME_IMAGE_URL,
-                                caption=WELCOME_MESSAGE,
-                                reply_markup=reply_markup
-                            )
-                            logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
-                        except Exception as send_err:
-                            logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
-                
-                elif command == "generate":
-                    logger.info(f"Начинаю обработку команды generate из callback для пользователя {user_id}")
-                    
-                    # Получаем модели пользователя через API запрос
-                    try:
-                        data = {"telegram_id": user_id}
-                        async with aiohttp.ClientSession() as session:
-                            async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
-                                if response.status == 200:
-                                    models = await response.json()
-                                    logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
-                                else:
-                                    logger.error(f"Ошибка при получении моделей через API: {response.status}")
-                                    models = []
-                    except Exception as e:
-                        logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
-                        models = []
-                    
-                    if not models:
-                        # Редактируем текущее сообщение
-                        try:
-                            await query.edit_message_caption(
-                                caption="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
-                            )
-                            logger.info(f"Обновлено сообщение для пользователя {user_id} - нет моделей")
-                        except Exception as e:
-                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
-                            await context.bot.send_message(
-                                chat_id=user_id,
-                                text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
-                            )
-                        logger.info(f"Пользователь {user_id} не имеет моделей")
-                        return
-                    
-                    # Создаем клавиатуру с моделями
-                    keyboard = []
-                    for model in models:
-                        # Получаем данные модели из API ответа
-                        model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
-                        model_id = model.get("model_id", "unknown")
-                        
-                        keyboard.append([
-                            InlineKeyboardButton(model_name, callback_data=f"model_{model_id}")
-                        ])
-                    
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    # Устанавливаем состояние выбора модели
-                    self.state_manager.set_state(user_id, UserState.SELECTING_MODEL)
-                    logger.info(f"Установлено состояние SELECTING_MODEL для пользователя {user_id}")
-                    
-                    # Пробуем изменить текущее сообщение
-                    try:
-                        await query.edit_message_caption(
-                            caption="Выберите модель для генерации изображений:",
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Обновлено сообщение для выбора модели пользователем {user_id}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при обновлении сообщения для выбора модели: {e}", exc_info=True)
-                        
-                        # Если не получилось изменить текущее сообщение, отправляем новое
-                        test_image_url = WELCOME_IMAGE_URL  # Используем константу из config.py
-                        try:
-                            await context.bot.send_photo(
-                                chat_id=user_id,
-                                photo=test_image_url,
-                                caption=message
-                            )
-                            logger.info(f"Отправлен список моделей пользователю {user_id}")
-                        except Exception as send_err:
-                            logger.error(f"Ошибка при отправке списка моделей: {send_err}", exc_info=True)
-                            # Если не удалось отправить фото, отправляем текстовое сообщение
-                            await context.bot.send_message(
-                                chat_id=user_id,
-                                text="Выберите модель для генерации изображений:",
-                                reply_markup=reply_markup
-                            )
-                
-                elif command == "models":
-                    logger.info(f"Начинаю обработку команды models из callback для пользователя {user_id}")
-                    
-                    # Получаем модели пользователя через API запрос
-                    try:
-                        data = {"telegram_id": user_id}
-                        async with aiohttp.ClientSession() as session:
-                            async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
-                                if response.status == 200:
-                                    models = await response.json()
-                                    logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
-                                else:
-                                    logger.error(f"Ошибка при получении моделей через API: {response.status}")
-                                    models = []
-                    except Exception as e:
-                        logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
-                        models = []
-                    
-                    if not models:
-                        try:
-                            await query.edit_message_caption(
-                                caption="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
-                            )
-                        except Exception as e:
-                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
-                            await context.bot.send_message(
-                                chat_id=user_id,
-                                text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
-                            )
-                        logger.info(f"Пользователь {user_id} не имеет моделей")
-                        return
-                    
-                    # Формируем сообщение со списком моделей
-                    message = "📋 Ваши модели:\n\n"
-                    
-                    for model in models:
-                        model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
-                        model_status = model.get("status", "неизвестно")
-                        model_date = model.get("created_at", "").split("T")[0] if isinstance(model.get("created_at", ""), str) else "Неизвестно"
-                        model_id = model.get("model_id", "неизвестно")
-                        
-                        message += f"🔹 {model_name}\n"
-                        message += f"   ID: {model_id}\n"
-                        message += f"   Статус: {model_status}\n"
-                        message += f"   Создана: {model_date}\n\n"
-                    
-                    # Пробуем изменить текущее сообщение
-                    try:
-                        await query.edit_message_caption(
-                            caption=message
-                        )
-                        logger.info(f"Обновлено сообщение со списком моделей для пользователя {user_id}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при обновлении сообщения со списком моделей: {e}", exc_info=True)
-                        
-                        # Если не получилось изменить текущее сообщение, отправляем новое
-                        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-                        try:
-                            await context.bot.send_photo(
-                                chat_id=user_id,
-                                photo=test_image_url,
-                                caption=message
-                            )
-                            logger.info(f"Отправлен список моделей пользователю {user_id}")
-                        except Exception as send_err:
-                            logger.error(f"Ошибка при отправке списка моделей: {send_err}", exc_info=True)
-                            # Если не удалось отправить фото, отправляем текстовое сообщение
-                            await context.bot.send_message(
-                                chat_id=user_id,
-                                text=message
-                            )
-                
-                elif command == "credits":
-                    logger.info(f"Начинаю обработку команды credits из callback для пользователя {user_id}")
-                    
-                    # Получаем пользователя из базы данных
-                    user = await self.db.get_user(user_id)
-                    
-                    if not user:
-                        try:
-                            await query.edit_message_caption(
-                                caption="Произошла ошибка при получении информации о кредитах."
-                            )
-                        except Exception as e:
-                            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
-                            await context.bot.send_message(
-                                chat_id=user_id,
-                                text="Произошла ошибка при получении информации о кредитах."
-                            )
-                        logger.error(f"Не удалось получить информацию о пользователе {user_id}")
-                        return
-                    
-                    credits = user.get("credits", 0)
-                    message = f"💰 У вас {credits} кредитов.\n\n" \
-                              f"Каждое обучение модели стоит 1 кредит.\n" \
-                              f"Каждая генерация изображений стоит 1 кредит."
-                    
-                    # Создаем клавиатуру с кнопкой "Назад"
-                    keyboard = [
-                        [InlineKeyboardButton("🔙 Назад", callback_data="cmd_start")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    # Пробуем изменить текущее сообщение
-                    try:
-                        await query.edit_message_caption(
-                            caption=message,
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Обновлено сообщение с информацией о кредитах для пользователя {user_id}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при обновлении сообщения с информацией о кредитах: {e}", exc_info=True)
-                        
-                        # Если не получилось изменить текущее сообщение, отправляем новое
-                        test_image_url = "https://raw.githubusercontent.com/Leogelv/astria-portraits-telegram-bot/main/assets/welcome.png"
-                        try:
-                            await context.bot.send_photo(
-                                chat_id=user_id,
-                                photo=test_image_url,
-                                caption=message,
-                                reply_markup=reply_markup
-                            )
-                            logger.info(f"Отправлена информация о кредитах пользователю {user_id}")
-                        except Exception as send_err:
-                            logger.error(f"Ошибка при отправке информации о кредитах: {send_err}", exc_info=True)
-                            # Если не удалось отправить фото, отправляем текстовое сообщение
-                            await context.bot.send_message(
-                                chat_id=user_id,
-                                text=message
-                            )
-                
-            except Exception as e:
-                logger.error(f"Ошибка при обработке callback команды {command}: {e}", exc_info=True)
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"❌ Произошла ошибка при выполнении команды. Пожалуйста, попробуйте еще раз или используйте команду /start для перезапуска бота."
-                    )
-                except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение об ошибке: {send_error}", exc_info=True)
-        
-        elif callback_data.startswith("model_"):
-            # Выбор модели для генерации изображений
-            try:
-                model_id_str = callback_data.split("_")[1]
-                if model_id_str.lower() == "none" or not model_id_str:
-                    logger.error(f"Некорректный ID модели в callback_data: {model_id_str}")
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Ошибка: некорректный ID модели. Пожалуйста, выберите модель заново."
-                    )
-                    return
-                
-                model_id = int(model_id_str)
-                logger.info(f"Пользователь {user_id} выбрал модель {model_id}")
-                
-                # Сохраняем ID модели
-                self.state_manager.set_data(user_id, "model_id", model_id)
-                
-                # Устанавливаем состояние ввода промпта
-                self.state_manager.set_state(user_id, UserState.ENTERING_PROMPT)
-                logger.info(f"Установлено состояние ENTERING_PROMPT для пользователя {user_id}")
-                
-                # Создаем клавиатуру с кнопкой отмены
-                keyboard = [
-                    [InlineKeyboardButton("❌ Отменить", callback_data="cancel_generation")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                # Просим ввести промпт, проверяя тип сообщения
-                try:
-                    # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
-                    if hasattr(query.message, 'caption') and query.message.caption is not None:
-                        sent_message = await query.edit_message_caption(
-                            caption=ENTER_PROMPT_MESSAGE,
-                            reply_markup=reply_markup
-                        )
-                        # Сохраняем ID сообщения для последующего редактирования
-                        self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-                        logger.info(f"Обновлена подпись с запросом промпта для пользователя {user_id}")
-                    else:
-                        # Если caption нет, меняем текст
-                        sent_message = await query.edit_message_text(
-                            text=ENTER_PROMPT_MESSAGE,
-                            reply_markup=reply_markup
-                        )
-                        # Сохраняем ID сообщения для последующего редактирования
-                        self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-                        logger.info(f"Отправлен запрос на ввод промпта пользователю {user_id}")
-                except Exception as e:
-                    logger.error(f"Ошибка при обновлении сообщения с запросом промпта: {e}", exc_info=True)
-                    try:
-                        # Отправляем новое сообщение с запросом промпта
-                        sent_message = await context.bot.send_message(
-                            chat_id=user_id,
-                            text=ENTER_PROMPT_MESSAGE,
-                            reply_markup=reply_markup
-                        )
-                        # Сохраняем ID нового сообщения
-                        self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                        logger.info(f"Отправлено новое сообщение с запросом промпта пользователю {user_id}")
-                    except Exception as send_error:
-                        logger.error(f"Не удалось отправить сообщение с запросом промпта: {send_error}", exc_info=True)
-            except ValueError as e:
-                logger.error(f"Ошибка при преобразовании ID модели: {e}", exc_info=True)
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="Ошибка: некорректный формат ID модели. Пожалуйста, выберите модель заново."
-                )
-            except Exception as e:
-                logger.error(f"Неизвестная ошибка при обработке выбора модели: {e}", exc_info=True)
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"Произошла ошибка при выборе модели: {str(e)}. Пожалуйста, попробуйте еще раз."
-                )
-        
-        elif callback_data == "start_generation":
-            # Запуск генерации изображений
-            logger.info(f"Пользователь {user_id} запустил генерацию изображений")
-            
-            # Получаем данные из состояния пользователя
+            # Получаем ID модели
             model_id = self.state_manager.get_data(user_id, "model_id")
-            prompt = self.state_manager.get_data(user_id, "prompt")
-            
-            if not model_id or not prompt:
-                logger.error(f"Не удалось получить model_id или prompt для пользователя {user_id}")
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью команды /generate.")
-                self.state_manager.reset_state(user_id)
-                return
             
             # Создаем данные для запроса
             data = {
                 "model_id": model_id,
-                "prompt": prompt,
+                "prompt": text,
                 "telegram_id": user_id,
                 "num_images": 4  # Количество изображений для генерации
             }
             
-            logger.info(f"Данные для генерации: model_id={model_id}, prompt='{prompt}', telegram_id={user_id}")
+            logger.info(f"Данные для генерации: model_id={model_id}, prompt='{text}', telegram_id={user_id}")
             
             # Отправляем статусное сообщение
-            try:
-                await query.edit_message_text("⏳ Отправка запроса на генерацию изображений...")
-                status_message = await context.bot.send_message(
-                    chat_id=user_id,
-                    text="⏳ Отправка запроса на генерацию изображений..."
-                )
-            except Exception as e:
-                logger.error(f"Ошибка при отправке статусного сообщения: {e}", exc_info=True)
-                status_message = await context.bot.send_message(
-                    chat_id=user_id,
-                    text="⏳ Отправка запроса на генерацию изображений..."
-                )
+            status_message = await update.message.reply_text("⏳ Отправка запроса на генерацию изображений...")
             
             # Отправляем запрос на генерацию
             try:
@@ -1245,85 +800,10 @@ class AstriaBot:
             
             # Сбрасываем состояние пользователя
             self.state_manager.reset_state(user_id)
-            
-        elif callback_data == "edit_prompt":
-            # Изменение промпта
-            logger.info(f"Пользователь {user_id} решил изменить промпт")
-            
-            # Устанавливаем состояние ввода промпта
-            self.state_manager.set_state(user_id, UserState.ENTERING_PROMPT)
-            
-            # Создаем клавиатуру с кнопкой отмены
-            keyboard = [
-                [InlineKeyboardButton("❌ Отменить", callback_data="cancel_generation")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Отправляем сообщение с запросом нового промпта
-            try:
-                await query.edit_message_text(
-                    text="Пожалуйста, введите новый промпт для генерации изображений:",
-                    reply_markup=reply_markup
-                )
-                # Сохраняем ID сообщения для последующего редактирования
-                self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-                logger.info(f"Отправлен запрос на ввод нового промпта пользователю {user_id}")
-            except Exception as e:
-                logger.error(f"Ошибка при отправке запроса на ввод нового промпта: {e}", exc_info=True)
-                try:
-                    sent_message = await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Пожалуйста, введите новый промпт для генерации изображений:",
-                        reply_markup=reply_markup
-                    )
-                    # Сохраняем ID нового сообщения
-                    self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                    logger.info(f"Отправлено новое сообщение с запросом редактирования промпта пользователю {user_id}")
-                except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение с запросом нового промпта: {send_error}", exc_info=True)
         
-        elif callback_data == "cancel_generation":
-            # Отмена генерации изображений
-            logger.info(f"Пользователь {user_id} отменил генерацию изображений")
-            
-            # Сбрасываем состояние пользователя
-            self.state_manager.reset_state(user_id)
-            
-            # Используем функцию для создания основной клавиатуры
-            reply_markup = create_main_keyboard()
-            
-            try:
-                # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
-                if hasattr(query.message, 'caption') and query.message.caption is not None:
-                    await query.edit_message_caption(
-                        caption="Генерация изображений отменена.\n\nВыберите действие:",
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Обновлено сообщение с подписью для пользователя {user_id}")
-                else:
-                    # Если caption нет, меняем текст
-                    await query.edit_message_text(
-                        text="Генерация изображений отменена.\n\nВыберите действие:",
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Обновлено текстовое сообщение для пользователя {user_id}")
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении сообщения отмены: {e}", exc_info=True)
-                # В случае ошибки отправляем новое фото с меню
-                try:
-                    await context.bot.send_photo(
-                        chat_id=user_id,
-                        photo=WELCOME_IMAGE_URL,
-                        caption=WELCOME_MESSAGE,
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
-                except Exception as send_err:
-                    logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
-        
-        elif callback_data.startswith("type_"):
+        elif state == UserState.SELECTING_MODEL_TYPE:
             # Выбор типа модели
-            model_type = callback_data.split("_")[1]
+            model_type = text
             logger.info(f"Пользователь {user_id} выбрал тип модели: {model_type}")
             
             # Сохраняем тип модели
@@ -1357,258 +837,105 @@ class AstriaBot:
                 )
                 logger.info(f"Отправлено текстовое сообщение с инструкциями пользователю {user_id}")
         
-        elif callback_data.startswith("start_training_"):
-            # Нажата кнопка "Начать обучение модели" после загрузки фотографий
-            media_group_id = callback_data.split("_")[2]
-            logger.info(f"Пользователь {user_id} запустил обучение модели для медиагруппы {media_group_id}")
-            
-            # Проверяем, существует ли медиагруппа
-            if media_group_id not in self.media_groups:
-                logger.error(f"Медиагруппа {media_group_id} не найдена при попытке начать обучение")
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="Ошибка: информация о загруженных фотографиях не найдена. Пожалуйста, загрузите фотографии заново."
-                )
+        elif state == UserState.UPLOADING_PHOTOS:
+            # Загрузка фотографий
+            if not update.message.photo:
+                await update.message.reply_text("Пожалуйста, отправьте фотографии.")
                 return
             
-            # Получаем данные медиагруппы
-            file_paths = self.media_groups[media_group_id]["file_paths"]
-            status_message_id = self.media_groups[media_group_id]["status_message_id"]
+            # Получаем фотографии
+            photos = update.message.photo
+            photo_count = len(photos)
             
-            # Получаем модель и тип из состояния пользователя
-            model_name = self.state_manager.get_data(user_id, "model_name")
-            model_type = self.state_manager.get_data(user_id, "model_type")
+            if photo_count < 3 or photo_count > 10:
+                await update.message.reply_text("Пожалуйста, отправьте от 3 до 10 фотографий.")
+                return
             
-            # Если нет данных, используем значения по умолчанию
-            if not model_name:
-                model_name = f"model_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                logger.warning(f"Не найдено имя модели для пользователя {user_id}, используем сгенерированное: {model_name}")
+            # Сохраняем фотографии
+            self.state_manager.add_to_list(user_id, "photos", [photo.file_id for photo in photos])
+            
+            await update.message.reply_text(
+                f"✅ Фотографии успешно загружены!\n"
+                f"Вы отправили {photo_count} фотографий.\n\n"
+                f"Осталось загрузить: {MAX_PHOTOS - photo_count} фотографий."
+            )
+            
+            # Если загружены все фотографии, переходим к подтверждению обучения модели
+            if photo_count >= MAX_PHOTOS:
+                # Получаем данные о модели
+                model_name = self.state_manager.get_data(user_id, "model_name")
+                model_type = self.state_manager.get_data(user_id, "model_type")
                 
-            if not model_type:
-                model_type = "default"
-                logger.warning(f"Не найден тип модели для пользователя {user_id}, используем значение по умолчанию: {model_type}")
-            
-            # Формируем данные для отправки
-            data = {
-                "model_name": model_name,
-                "model_type": model_type,
-                "file_paths": file_paths,
-                "telegram_id": user_id
-            }
-            
-            logger.info(f"Отправка данных для обучения: модель '{model_name}', тип '{model_type}', файлов: {len(file_paths)}")
-            
-            # Обновляем статусное сообщение
-            if status_message_id:
-                try:
-                    await context.bot.edit_message_text(
-                        chat_id=user_id,
-                        message_id=status_message_id,
-                        text=f"⏳ Отправка фотографий на сервер для обучения модели..."
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
-            
-            # Отправляем данные на вебхук
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post('https://n8n2.supashkola.ru/webhook/start_finetune', json=data) as response:
-                        if response.status == 200:
-                            logger.info(f"Данные медиагруппы {media_group_id} успешно отправлены на вебхук: {len(file_paths)} фотографий")
-                            
-                            # Создаем кнопки для навигации
-                            keyboard = [
-                                [
-                                    InlineKeyboardButton("🏠 В главное меню", callback_data="cmd_start")
-                                ]
-                            ]
-                            reply_markup = InlineKeyboardMarkup(keyboard)
-                            
-                            # Обновляем статусное сообщение, если оно существует
-                            if status_message_id:
-                                try:
-                                    await context.bot.edit_message_text(
-                                        chat_id=user_id,
-                                        message_id=status_message_id,
-                                        text=f"✅ Все фотографии ({len(file_paths)}) успешно отправлены на сервер для обучения модели.\n\nМы уведомим вас, когда модель будет готова.",
-                                        reply_markup=reply_markup
-                                    )
-                                except Exception as e:
-                                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
-                                    # Если не удалось обновить статусное сообщение, отправляем новое
-                                    try:
-                                        await context.bot.send_message(
-                                            chat_id=user_id,
-                                            text=f"✅ Все фотографии ({len(file_paths)}) успешно отправлены на сервер для обучения модели.\n\nМы уведомим вас, когда модель будет готова.",
-                                            reply_markup=reply_markup
-                                        )
-                                    except Exception as send_error:
-                                        logger.error(f"Не удалось отправить сообщение об успехе: {send_error}")
-                            else:
-                                # Если нет статусного сообщения, отправляем новое
-                                try:
-                                    await context.bot.send_message(
-                                        chat_id=user_id,
-                                        text=f"✅ Все фотографии ({len(file_paths)}) успешно отправлены на сервер для обучения модели.\n\nМы уведомим вас, когда модель будет готова.",
-                                        reply_markup=reply_markup
-                                    )
-                                except Exception as send_error:
-                                    logger.error(f"Не удалось отправить сообщение об успехе: {send_error}")
-                        else:
-                            logger.error(f"Ошибка при отправке данных медиагруппы на вебхук: {response.status}")
-                            
-                            # Обновляем статусное сообщение
-                            if status_message_id:
-                                try:
-                                    # Восстанавливаем кнопки для повторной попытки
-                                    keyboard = [
-                                        [
-                                            InlineKeyboardButton("✅ Повторить попытку", callback_data=f"start_training_{media_group_id}"),
-                                            InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
-                                        ]
-                                    ]
-                                    reply_markup = InlineKeyboardMarkup(keyboard)
-                                    
-                                    await context.bot.edit_message_text(
-                                        chat_id=user_id,
-                                        message_id=status_message_id,
-                                        text=f"❌ Ошибка при отправке фотографий на сервер. Пожалуйста, попробуйте снова.",
-                                        reply_markup=reply_markup
-                                    )
-                                except Exception as e:
-                                    logger.error(f"Ошибка при обновлении статусного сообщения: {e}")
-            except Exception as e:
-                logger.error(f"Исключение при отправке данных медиагруппы на вебхук: {e}")
-                
-                # Обновляем статусное сообщение
-                if status_message_id:
-                    try:
-                        # Восстанавливаем кнопки для повторной попытки
-                        keyboard = [
-                            [
-                                InlineKeyboardButton("✅ Повторить попытку", callback_data=f"start_training_{media_group_id}"),
-                                InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
-                            ]
-                        ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-                        
-                        await context.bot.edit_message_text(
-                            chat_id=user_id,
-                            message_id=status_message_id,
-                            text=f"❌ Произошла ошибка при обработке фотографий: {str(e)}",
-                            reply_markup=reply_markup
-                        )
-                    except Exception as edit_error:
-                        logger.error(f"Ошибка при обновлении статусного сообщения: {edit_error}")
-        
-        elif callback_data == "cancel_training":
-            # Отмена обучения модели
-            logger.info(f"Пользователь {user_id} отменил обучение модели")
-            
-            # Сбрасываем состояние пользователя
-            self.state_manager.reset_state(user_id)
-            
-            # Создаем клавиатуру с кнопками для команд (как в /start)
-            keyboard = [
-                [
-                    InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")
-                ],
-                [
-                    InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-                ],
-                [
-                    InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
+                # Создаем клавиатуру для подтверждения
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Да, начать обучение", callback_data="start_training"),
+                        InlineKeyboardButton("Отмена", callback_data="cancel_training")
+                    ]
                 ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            try:
-                # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
-                if hasattr(query.message, 'caption') and query.message.caption is not None:
-                    await query.edit_message_caption(
-                        caption=WELCOME_MESSAGE,
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Обновлено сообщение с подписью для пользователя {user_id}")
-                else:
-                    # Если caption нет, меняем текст
-                    await query.edit_message_text(
-                        text=WELCOME_MESSAGE,
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Обновлено текстовое сообщение для пользователя {user_id}")
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении сообщения отмены: {e}", exc_info=True)
-                # В случае ошибки отправляем новое фото с меню
-                try:
-                    await context.bot.send_photo(
-                        chat_id=user_id,
-                        photo=WELCOME_IMAGE_URL,
-                        caption=WELCOME_MESSAGE,
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
-                except Exception as send_err:
-                    logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
-        
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Отправляем сообщение о завершении загрузки и запрос на подтверждение
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"✅ Все фотографии ({photo_count}) успешно загружены!\n\n"
+                         f"Данные для обучения модели:\n"
+                         f"Название: {model_name}\n"
+                         f"Тип: {'Мужчина' if model_type == 'male' else 'Женщина'}\n"
+                         f"Количество фотографий: {photo_count}\n\n"
+                         f"Начать обучение модели?",
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Отправлен запрос на подтверждение обучения модели пользователю {user_id}")
         else:
             # Неизвестный callback
-            logger.warning(f"Получен неизвестный callback от пользователя {user_id}: {callback_data}")
+            logger.warning(f"Получен неизвестный callback от пользователя {user_id}: {state}")
             try:
                 await query.answer("Неизвестная команда")
             except Exception as e:
                 logger.error(f"Ошибка при ответе на неизвестный callback: {e}", exc_info=True)
 
-    async def handle_webhook_update(self, update_data: Dict[str, Any]) -> None:
-        """Обработка обновления от вебхука"""
-        logger.debug(f"Получено обновление от вебхука: {update_data}")
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик callback-запросов"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        logger.info(f"Получен callback_query: {query.data}")
         
-        # Проверяем, является ли это обновлением от Telegram
-        if "update_id" in update_data:
-            logger.info(f"Получено обновление от Telegram: {update_data.get('update_id')}")
-            
-            # Проверяем наличие callback_query
-            if "callback_query" in update_data:
-                logger.info(f"Получен callback_query: {update_data.get('callback_query', {}).get('data')}")
-                logger.debug(f"Полный callback_query: {update_data.get('callback_query')}")
-                # Конвертируем dict в объект Update и обрабатываем
-                update = Update.de_json(data=update_data, bot=self.application.bot)
-                if update:
-                    logger.info(f"Успешно создан объект Update с ID {update.update_id}")
-                    await self.application.process_update(update)
-                else:
-                    logger.error(f"Не удалось создать объект Update из данных: {update_data}")
-            
-            # Проверяем наличие сообщения
-            elif "message" in update_data:
-                logger.info(f"Получено сообщение от пользователя {update_data.get('message', {}).get('from', {}).get('id')}")
-                # Конвертируем dict в объект Update и обрабатываем
-                update = Update.de_json(data=update_data, bot=self.application.bot)
-                if update:
-                    logger.info(f"Успешно создан объект Update с ID {update.update_id}")
-                    await self.application.process_update(update)
-                else:
-                    logger.error(f"Не удалось создать объект Update из данных: {update_data}")
-            
-            # Другие типы обновлений от Telegram
-            else:
-                logger.warning(f"Получен неизвестный тип обновления от Telegram: {update_data}")
-                # Попробуем обработать в любом случае
-                update = Update.de_json(data=update_data, bot=self.application.bot)
-                if update:
-                    await self.application.process_update(update)
-        
-        # Обработка обновления статуса модели
-        elif update_data.get("type") == "model_status_update":
-            await self.handle_model_status_update(update_data)
-        
-        # Обработка обновления статуса промпта
-        elif update_data.get("type") == "prompt_status_update":
-            await self.handle_prompt_status_update(update_data)
-        
-        # Неизвестный тип обновления
+        # Обрабатываем различные callback-запросы
+        if query.data == "cmd_start":
+            await self.start_command(update, context)
+        elif query.data == "cmd_train":
+            await self.train_command(update, context)
+        elif query.data == "cmd_generate":
+            await self.generate_command(update, context)
+        elif query.data == "cmd_credits":
+            await self.credits_command(update, context)
+        elif query.data == "cmd_cancel":
+            await self.cancel_command(update, context)
+        elif query.data == "cmd_models":
+            await self.models_command(update, context)
+        elif query.data == "cmd_help":
+            await self.help_command(update, context)
+        elif query.data == "type_male":
+            await self.handle_model_type_selection(update, context, "male")
+        elif query.data == "type_female":
+            await self.handle_model_type_selection(update, context, "female")
+        elif query.data.startswith("start_training_"):
+            await self.handle_training_start(update, context, query.data)
+        elif query.data == "cancel_training":
+            await self.cancel_training(update, context)
+        elif query.data == "start_generation":
+            await self.start_generation(update, context)
+        elif query.data == "edit_prompt":
+            await self.edit_prompt(update, context)
+        elif query.data == "cancel_generation":
+            await self.cancel_generation(update, context)
         else:
-            logger.warning(f"Получен неизвестный тип обновления: {update_data}")
+            logger.warning(f"Получен неизвестный callback от пользователя {user_id}: {query.data}")
+            try:
+                await query.answer("Неизвестная команда")
+            except Exception as e:
+                logger.error(f"Ошибка при ответе на неизвестный callback: {e}", exc_info=True)
 
     async def handle_model_status_update(self, update_data: Dict[str, Any]) -> None:
         """Обработка обновления статуса модели"""
