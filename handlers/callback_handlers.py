@@ -491,7 +491,11 @@ class CallbackHandler:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Просим ввести промпт и сохраняем ID сообщения для последующего редактирования
+            # Важно: всегда сохраняем ID сообщения для последующего редактирования
+            self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
+            logger.info(f"Сохранен ID сообщения {query.message.message_id} для редактирования при вводе промпта")
+            
+            # Просим ввести промпт, редактируя текущее сообщение
             try:
                 # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
                 if hasattr(query.message, 'caption') and query.message.caption is not None:
@@ -499,32 +503,28 @@ class CallbackHandler:
                         caption=ENTER_PROMPT_MESSAGE,
                         reply_markup=reply_markup
                     )
-                    # Сохраняем ID сообщения для последующего редактирования
-                    self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-                    logger.info(f"Сохранен ID сообщения {query.message.message_id} для редактирования промпта пользователя {user_id}")
+                    logger.info(f"Обновлена подпись с запросом промпта для пользователя {user_id}")
                 else:
                     # Если caption нет, меняем текст
                     await query.edit_message_text(
                         text=ENTER_PROMPT_MESSAGE,
                         reply_markup=reply_markup
                     )
-                    # Сохраняем ID сообщения для последующего редактирования
-                    self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-                    logger.info(f"Сохранен ID сообщения {query.message.message_id} для редактирования промпта пользователя {user_id}")
+                    logger.info(f"Обновлен текст с запросом промпта для пользователя {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при обновлении сообщения с запросом промпта: {e}", exc_info=True)
                 try:
-                    # Отправляем новое сообщение с запросом промпта
+                    # Отправляем новое сообщение с запросом промпта только в случае ошибки
                     sent_message = await context.bot.send_message(
                         chat_id=user_id,
                         text=ENTER_PROMPT_MESSAGE,
                         reply_markup=reply_markup
                     )
-                    # Сохраняем ID нового сообщения
+                    # Обновляем ID сообщения
                     self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                    logger.info(f"Сохранен ID нового сообщения {sent_message.message_id} для редактирования промпта пользователя {user_id}")
+                    logger.info(f"Отправлено новое сообщение с ID {sent_message.message_id} для ввода промпта (резервный вариант)")
                 except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение с запросом промпта: {send_error}", exc_info=True)
+                    logger.error(f"Не удалось отправить даже новое сообщение с запросом промпта: {send_error}", exc_info=True)
         except ValueError as e:
             logger.error(f"Ошибка при преобразовании ID модели: {e}", exc_info=True)
             await context.bot.send_message(
@@ -670,28 +670,31 @@ class CallbackHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # Важно: всегда сохраняем ID текущего сообщения для последующего редактирования
+        self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
+        logger.info(f"Сохранен ID сообщения {query.message.message_id} для редактирования при изменении промпта")
+        
         # Отправляем сообщение с запросом нового промпта и сохраняем ID для последующего редактирования
         try:
             await query.edit_message_text(
                 text="Пожалуйста, введите новый промпт для генерации изображений:",
                 reply_markup=reply_markup
             )
-            # Сохраняем ID сообщения для последующего редактирования
-            self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-            logger.info(f"Обновлено сообщение для редактирования промпта пользователем {user_id}, ID: {query.message.message_id}")
+            logger.info(f"Обновлено сообщение для ввода нового промпта пользователем {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка при отправке запроса на ввод нового промпта: {e}", exc_info=True)
+            logger.error(f"Ошибка при обновлении сообщения с запросом нового промпта: {e}", exc_info=True)
             try:
+                # Отправляем новое сообщение только в случае ошибки
                 sent_message = await context.bot.send_message(
                     chat_id=user_id,
                     text="Пожалуйста, введите новый промпт для генерации изображений:",
                     reply_markup=reply_markup
                 )
-                # Сохраняем ID нового сообщения
+                # Обновляем ID сообщения
                 self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                logger.info(f"Отправлено новое сообщение для редактирования промпта пользователю {user_id}, ID: {sent_message.message_id}")
+                logger.info(f"Отправлено новое сообщение с ID {sent_message.message_id} для ввода нового промпта (резервный вариант)")
             except Exception as send_error:
-                logger.error(f"Не удалось отправить сообщение с запросом нового промпта: {send_error}", exc_info=True)
+                logger.error(f"Не удалось отправить даже новое сообщение с запросом нового промпта: {send_error}", exc_info=True)
     
     async def _handle_cancel_generation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """

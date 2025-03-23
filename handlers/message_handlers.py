@@ -133,8 +133,7 @@ class MessageHandler:
         prompt_message_id = self.state_manager.get_data(user_id, "prompt_message_id")
         
         if prompt_message_id:
-            logger.info(f"Редактирую сообщение {prompt_message_id} с запросом промпта для пользователя {user_id}")
-            # Редактируем сообщение с запросом промпта
+            logger.info(f"Редактирую сообщение {prompt_message_id} для пользователя {user_id}")
             try:
                 await context.bot.edit_message_text(
                     chat_id=user_id,
@@ -142,27 +141,49 @@ class MessageHandler:
                     text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
                     reply_markup=reply_markup
                 )
-                logger.info(f"Обновлено сообщение с подтверждением промпта для пользователя {user_id}")
+                logger.info(f"Обновлено сообщение с промптом для пользователя {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при обновлении сообщения с промптом: {e}", exc_info=True)
-                # В случае ошибки отправляем новое сообщение
-                sent_message = await update.message.reply_text(
-                    f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+                # Если не удалось обновить сообщение (возможно оно устарело), пробуем найти последнее сообщение от бота
+                try:
+                    # Пробуем редактировать последнее сообщение от бота
+                    updates = await context.bot.get_updates(limit=10, timeout=1)
+                    bot_messages = [u.message for u in updates if u.message and u.message.from_user and u.message.from_user.is_bot and u.message.chat.id == user_id]
+                    if bot_messages:
+                        latest_bot_message = bot_messages[-1]
+                        await context.bot.edit_message_text(
+                            chat_id=user_id,
+                            message_id=latest_bot_message.message_id,
+                            text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+                            reply_markup=reply_markup
+                        )
+                        # Сохраняем ID нового сообщения
+                        self.state_manager.set_data(user_id, "prompt_message_id", latest_bot_message.message_id)
+                        logger.info(f"Отредактировано последнее сообщение бота с ID {latest_bot_message.message_id}")
+                        return
+                except Exception as latest_err:
+                    logger.error(f"Не удалось найти и отредактировать последнее сообщение бота: {latest_err}", exc_info=True)
+                
+                # Если все попытки редактирования не удались, отправляем новое сообщение в крайнем случае
+                sent_message = await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
                     reply_markup=reply_markup
                 )
                 # Сохраняем ID нового сообщения
                 self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                logger.info(f"Отправлено новое сообщение с подтверждением промпта пользователю {user_id}")
+                logger.info(f"Отправлено новое сообщение с ID {sent_message.message_id} с подтверждением промпта (резервный вариант)")
         else:
-            logger.info(f"Не найден message_id с запросом промпта для пользователя {user_id}, отправляю новое сообщение")
+            logger.warning(f"Не найден message_id для редактирования промпта пользователя {user_id}, отправляю новое сообщение")
             # Если нет сохраненного ID сообщения, отправляем новое
-            sent_message = await update.message.reply_text(
-                f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+            sent_message = await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
                 reply_markup=reply_markup
             )
             # Сохраняем ID нового сообщения
             self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-            logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id} с ID {sent_message.message_id}")
+            logger.info(f"Отправлено новое сообщение с ID {sent_message.message_id} с подтверждением промпта")
         
         # Обновляем состояние
         self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)
