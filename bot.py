@@ -38,6 +38,7 @@ from database import DatabaseManager
 from api_client import ApiClient
 from state_manager import StateManager, UserState
 from supabase_logger import SupabaseLogger
+from utils.message_utils import create_main_keyboard
 
 # Настройка логирования
 os.makedirs("logs", exist_ok=True)
@@ -127,47 +128,40 @@ class AstriaBot:
         first_name = update.effective_user.first_name or ""
         last_name = update.effective_user.last_name or ""
         
-        logger.info(f"Пользователь {user_id} ({username}) запустил бота")
+        # Сбрасываем состояние пользователя
+        self.state_manager.reset_state(user_id)
         
         # Регистрируем пользователя
         await self.register_user(user_id, username, first_name, last_name)
         
-        # Сбрасываем состояние пользователя
-        self.state_manager.reset_state(user_id)
+        # Используем функцию для создания основной клавиатуры
+        reply_markup = create_main_keyboard()
         
-        # Создаем клавиатуру с кнопками для команд
-        keyboard = [
-            [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
-                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-            ],
-            [
-                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # URL для фото приветствия - используем константу из config.py
+        # Отправляем welcome сообщение с фото
         try:
-            # Отправляем фото с приветствием и кнопками
             await context.bot.send_photo(
                 chat_id=user_id,
                 photo=WELCOME_IMAGE_URL,
                 caption=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
-            
-            # Удаляем сообщение пользователя для чистоты чата
-            if update.message:
-                try:
-                    await update.message.delete()
-                    logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
-                except Exception as e:
-                    logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
+            logger.info(f"Отправлено welcome сообщение пользователю {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка при отправке приветственного фото: {e}", exc_info=True)
-            # Если что-то пошло не так, отправляем текстовое сообщение
-            await update.message.reply_text(WELCOME_MESSAGE, reply_markup=reply_markup)
+            logger.error(f"Ошибка при отправке welcome сообщения: {e}", exc_info=True)
+            # Если не удалось отправить фото, отправляем текстовое сообщение
+            await update.message.reply_text(
+                text=WELCOME_MESSAGE,
+                reply_markup=reply_markup
+            )
+            logger.info(f"Отправлено текстовое welcome сообщение пользователю {user_id}")
+        
+        # Удаляем сообщение пользователя для чистоты чата
+        if update.message:
+            try:
+                await update.message.delete()
+                logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /help"""
@@ -842,17 +836,8 @@ class AstriaBot:
                     # Сбрасываем состояние пользователя
                     self.state_manager.reset_state(user_id)
                     
-                    # Создаем клавиатуру с кнопками для команд
-                    keyboard = [
-                        [
-                            InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
-                            InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-                        ],
-                        [
-                            InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-                        ]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    # Используем функцию для создания основной клавиатуры
+                    reply_markup = create_main_keyboard()
                     
                     # Редактируем текущее сообщение
                     try:
@@ -1304,32 +1289,21 @@ class AstriaBot:
             # Сбрасываем состояние пользователя
             self.state_manager.reset_state(user_id)
             
-            # Создаем клавиатуру с кнопками для команд (как в /start)
-            keyboard = [
-                [
-                    InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")
-                ],
-                [
-                    InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-                ],
-                [
-                    InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Используем функцию для создания основной клавиатуры
+            reply_markup = create_main_keyboard()
             
             try:
                 # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
                 if hasattr(query.message, 'caption') and query.message.caption is not None:
                     await query.edit_message_caption(
-                        caption=WELCOME_MESSAGE,
+                        caption="Генерация изображений отменена.\n\nВыберите действие:",
                         reply_markup=reply_markup
                     )
                     logger.info(f"Обновлено сообщение с подписью для пользователя {user_id}")
                 else:
                     # Если caption нет, меняем текст
                     await query.edit_message_text(
-                        text=WELCOME_MESSAGE,
+                        text="Генерация изображений отменена.\n\nВыберите действие:",
                         reply_markup=reply_markup
                     )
                     logger.info(f"Обновлено текстовое сообщение для пользователя {user_id}")
@@ -1879,7 +1853,7 @@ class AstriaBot:
             await context.bot.edit_message_text(
                 chat_id=user_id,
                 message_id=status_message.message_id,
-                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {str(e)}. Пожалуйста, попробуй еще раз."
+                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {str(e)}. Пожалуйста, попробуйте еще раз."
             )
         
         # Сбрасываем состояние пользователя
