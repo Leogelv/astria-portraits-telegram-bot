@@ -121,7 +121,7 @@ class MessageHandler:
         # Получаем ID модели
         model_id = self.state_manager.get_data(user_id, "model_id")
         
-        # Создаем клавиатуру с кнопкой для запуска генерации
+        # Создаем клавиатуру с кнопками для запуска генерации
         keyboard = [
             [InlineKeyboardButton("🚀 Запустить генерацию", callback_data="start_generation")],
             [InlineKeyboardButton("✏️ Изменить промпт", callback_data="edit_prompt")],
@@ -133,6 +133,7 @@ class MessageHandler:
         prompt_message_id = self.state_manager.get_data(user_id, "prompt_message_id")
         
         if prompt_message_id:
+            logger.info(f"Редактирую сообщение {prompt_message_id} с запросом промпта для пользователя {user_id}")
             # Редактируем сообщение с запросом промпта
             try:
                 await context.bot.edit_message_text(
@@ -153,6 +154,7 @@ class MessageHandler:
                 self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
                 logger.info(f"Отправлено новое сообщение с подтверждением промпта пользователю {user_id}")
         else:
+            logger.info(f"Не найден message_id с запросом промпта для пользователя {user_id}, отправляю новое сообщение")
             # Если нет сохраненного ID сообщения, отправляем новое
             sent_message = await update.message.reply_text(
                 f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
@@ -160,7 +162,7 @@ class MessageHandler:
             )
             # Сохраняем ID нового сообщения
             self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-            logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id}")
+            logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id} с ID {sent_message.message_id}")
         
         # Обновляем состояние
         self.state_manager.set_state(user_id, UserState.GENERATING_IMAGES)

@@ -308,17 +308,8 @@ class CommandHandlers:
         previous_state = self.state_manager.get_state(user_id)
         self.state_manager.reset_state(user_id)
         
-        # Создаем клавиатуру с кнопками для команд (как в /start)
-        keyboard = [
-            [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
-                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-            ],
-            [
-                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Используем функцию create_main_keyboard() для создания клавиатуры
+        reply_markup = create_main_keyboard()
         
         # Отправляем welcome сообщение с фото
         try:

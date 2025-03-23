@@ -388,7 +388,9 @@ class AstriaBot:
         # Создаем клавиатуру с кнопками для команд (как в /start)
         keyboard = [
             [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")
+            ],
+            [
                 InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
             ],
             [
@@ -1305,7 +1307,9 @@ class AstriaBot:
             # Создаем клавиатуру с кнопками для команд (как в /start)
             keyboard = [
                 [
-                    InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                    InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")
+                ],
+                [
                     InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
                 ],
                 [
@@ -1533,7 +1537,9 @@ class AstriaBot:
             # Создаем клавиатуру с кнопками для команд (как в /start)
             keyboard = [
                 [
-                    InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train"),
+                    InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")
+                ],
+                [
                     InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
                 ],
                 [
@@ -2058,11 +2064,43 @@ class AstriaBot:
         del self.media_groups[media_group_id]
         logger.info(f"Медиагруппа {media_group_id} обработана и удалена из словаря")
 
-    def run(self) -> None:
-        """Запуск бота"""
-        # Создаем приложение
+    def run(self):
+        """Запуск бота в режиме polling или webhook в зависимости от окружения"""
+        # Создаем приложение и регистрируем обработчики
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        self.register_handlers(application)
+        logger.info("Зарегистрированы обработчики: команды, фото, текст, колбеки")
         
+        # В режиме разработки (локально) используем polling
+        if os.environ.get("ENVIRONMENT") == "development" or not os.environ.get("ENVIRONMENT"):
+            logger.info("Запуск бота в режиме polling (разработка)")
+            application.run_polling()
+        else:
+            # В продакшене используем webhook
+            logger.info("Запуск бота в режиме webhook (продакшен)")
+            self.setup_webhook(application)
+
+    def setup_webhook(self, application: Application) -> None:
+        """Настройка вебхука для бота"""
+        logger.info(f"Настройка вебхука для бота: {WEBHOOK_URL}")
+        
+        # Получаем порт из переменных окружения или используем порт по умолчанию
+        port = int(os.environ.get("PORT", 8443))
+        logger.info(f"Используемый порт: {port}")
+        
+        # Настраиваем вебхук
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path="webhook",
+            webhook_url=f"{WEBHOOK_URL}/webhook",
+            secret_token=WEBHOOK_SECRET
+        )
+        
+        logger.info("Вебхук успешно настроен")
+
+    def register_handlers(self, application: Application) -> None:
+        """Регистрирует обработчики команд и сообщений"""
         # Сохраняем ссылку на приложение
         self.application = application
         
@@ -2084,36 +2122,6 @@ class AstriaBot:
         
         # Регистрируем обработчик ошибок
         application.add_error_handler(self.error_handler)
-        
-        # Логируем доступные обработчики
-        logger.info(f"Зарегистрированы обработчики: команды, фото, текст, колбеки")
-        
-        # Проверяем, нужно ли использовать вебхук
-        if WEBHOOK_URL:
-            self.setup_webhook(application)
-        else:
-            # Запускаем бота в режиме polling
-            logger.info("Запуск бота Astria AI в режиме polling")
-            application.run_polling()
-    
-    def setup_webhook(self, application: Application) -> None:
-        """Настройка вебхука для бота"""
-        logger.info(f"Настройка вебхука для бота: {WEBHOOK_URL}")
-        
-        # Получаем порт из переменных окружения или используем порт по умолчанию
-        port = int(os.environ.get("PORT", 8443))
-        logger.info(f"Используемый порт: {port}")
-        
-        # Настраиваем вебхук
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path="webhook",
-            webhook_url=f"{WEBHOOK_URL}/webhook",
-            secret_token=WEBHOOK_SECRET
-        )
-        
-        logger.info("Вебхук успешно настроен")
 
 
 if __name__ == "__main__":

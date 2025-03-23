@@ -491,26 +491,26 @@ class CallbackHandler:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Просим ввести промпт, проверяя тип сообщения
+            # Просим ввести промпт и сохраняем ID сообщения для последующего редактирования
             try:
                 # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
                 if hasattr(query.message, 'caption') and query.message.caption is not None:
-                    sent_message = await query.edit_message_caption(
+                    await query.edit_message_caption(
                         caption=ENTER_PROMPT_MESSAGE,
                         reply_markup=reply_markup
                     )
                     # Сохраняем ID сообщения для последующего редактирования
                     self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-                    logger.info(f"Обновлена подпись с запросом промпта для пользователя {user_id}")
+                    logger.info(f"Сохранен ID сообщения {query.message.message_id} для редактирования промпта пользователя {user_id}")
                 else:
                     # Если caption нет, меняем текст
-                    sent_message = await query.edit_message_text(
+                    await query.edit_message_text(
                         text=ENTER_PROMPT_MESSAGE,
                         reply_markup=reply_markup
                     )
                     # Сохраняем ID сообщения для последующего редактирования
                     self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-                    logger.info(f"Отправлен запрос на ввод промпта пользователю {user_id}")
+                    logger.info(f"Сохранен ID сообщения {query.message.message_id} для редактирования промпта пользователя {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при обновлении сообщения с запросом промпта: {e}", exc_info=True)
                 try:
@@ -522,7 +522,7 @@ class CallbackHandler:
                     )
                     # Сохраняем ID нового сообщения
                     self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                    logger.info(f"Отправлено новое сообщение с запросом промпта пользователю {user_id}")
+                    logger.info(f"Сохранен ID нового сообщения {sent_message.message_id} для редактирования промпта пользователя {user_id}")
                 except Exception as send_error:
                     logger.error(f"Не удалось отправить сообщение с запросом промпта: {send_error}", exc_info=True)
         except ValueError as e:
@@ -572,59 +572,79 @@ class CallbackHandler:
         
         logger.info(f"Данные для генерации: model_id={model_id}, prompt='{prompt}', telegram_id={user_id}")
         
-        # Отправляем статусное сообщение
+        # Редактируем текущее сообщение, показывая что запрос обрабатывается
         try:
-            await query.edit_message_text("⏳ Отправка запроса на генерацию изображений...")
-            status_message = await context.bot.send_message(
-                chat_id=user_id,
-                text="⏳ Отправка запроса на генерацию изображений..."
+            await query.edit_message_text(
+                text="⏳ Отправка запроса на генерацию изображений...",
+                reply_markup=None
             )
         except Exception as e:
-            logger.error(f"Ошибка при отправке статусного сообщения: {e}", exc_info=True)
-            status_message = await context.bot.send_message(
-                chat_id=user_id,
-                text="⏳ Отправка запроса на генерацию изображений..."
-            )
+            logger.error(f"Ошибка при редактировании сообщения: {e}", exc_info=True)
         
         # Отправляем запрос на генерацию
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post('https://n8n2.supashkola.ru/webhook/generate_tg', json=data) as response:
-                    response_text = await response.text()
                     if response.status == 200:
                         logger.info(f"Запрос на генерацию изображений для пользователя {user_id} успешно отправлен")
-                        try:
-                            response_data = await response.json()
-                            prompt_id = response_data.get("prompt_id", "unknown")
-                            logger.info(f"Получен ID промпта: {prompt_id}")
-                            
-                            # Обновляем статусное сообщение
-                            await context.bot.edit_message_text(
-                                chat_id=user_id,
-                                message_id=status_message.message_id,
-                                text=f"✅ Запрос на генерацию изображений успешно отправлен! ID промпта: {prompt_id}\n\nМы уведомим вас, когда изображения будут готовы."
-                            )
-                        except json.JSONDecodeError:
-                            logger.error(f"Не удалось декодировать JSON-ответ: {response_text}")
-                            await context.bot.edit_message_text(
-                                chat_id=user_id,
-                                message_id=status_message.message_id,
-                                text="✅ Запрос на генерацию изображений успешно отправлен!\n\nМы уведомим вас, когда изображения будут готовы."
-                            )
-                    else:
-                        logger.error(f"Ошибка при отправке запроса на генерацию: {response.status}, {response_text}")
-                        await context.bot.edit_message_text(
-                            chat_id=user_id,
-                            message_id=status_message.message_id,
-                            text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {response.status}. Пожалуйста, попробуйте еще раз."
+                        
+                        # Создаем клавиатуру с кнопкой возврата в главное меню
+                        keyboard = [
+                            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        success_message = (
+                            "✅ Запрос на генерацию изображений успешно отправлен!\n\n"
+                            "Мы уведомим вас, когда изображения будут готовы.\n\n"
+                            "💫 Этот бот создан для креаторов и будет становиться лучше с каждым обновлением! "
+                            "Скоро вы сможете создавать умопомрачительные видео, анимации и многое другое!"
                         )
+                        
+                        # Обновляем сообщение об успешной отправке
+                        try:
+                            await query.edit_message_text(
+                                text=success_message,
+                                reply_markup=reply_markup
+                            )
+                        except Exception as edit_err:
+                            logger.error(f"Ошибка при обновлении сообщения: {edit_err}", exc_info=True)
+                            
+                    else:
+                        response_text = await response.text()
+                        logger.error(f"Ошибка при отправке запроса на генерацию: {response.status}, {response_text}")
+                        
+                        # Создаем клавиатуру с кнопкой повтора и возврата в меню
+                        keyboard = [
+                            [InlineKeyboardButton("🔄 Повторить", callback_data="start_generation")],
+                            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        try:
+                            await query.edit_message_text(
+                                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений. Пожалуйста, попробуйте еще раз.",
+                                reply_markup=reply_markup
+                            )
+                        except Exception as edit_err:
+                            logger.error(f"Ошибка при обновлении сообщения об ошибке: {edit_err}", exc_info=True)
         except Exception as e:
             logger.error(f"Исключение при отправке запроса на генерацию: {e}", exc_info=True)
-            await context.bot.edit_message_text(
-                chat_id=user_id,
-                message_id=status_message.message_id,
-                text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений: {str(e)}. Пожалуйста, попробуйте еще раз."
-            )
+            
+            # Создаем клавиатуру с кнопкой повтора и возврата в меню
+            keyboard = [
+                [InlineKeyboardButton("🔄 Повторить", callback_data="start_generation")],
+                [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            try:
+                await query.edit_message_text(
+                    text=f"❌ Произошла ошибка при отправке запроса на генерацию изображений. Пожалуйста, попробуйте еще раз.",
+                    reply_markup=reply_markup
+                )
+            except Exception as edit_err:
+                logger.error(f"Ошибка при обновлении сообщения об ошибке: {edit_err}", exc_info=True)
         
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
@@ -650,7 +670,7 @@ class CallbackHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Отправляем сообщение с запросом нового промпта
+        # Отправляем сообщение с запросом нового промпта и сохраняем ID для последующего редактирования
         try:
             await query.edit_message_text(
                 text="Пожалуйста, введите новый промпт для генерации изображений:",
@@ -658,7 +678,7 @@ class CallbackHandler:
             )
             # Сохраняем ID сообщения для последующего редактирования
             self.state_manager.set_data(user_id, "prompt_message_id", query.message.message_id)
-            logger.info(f"Отправлен запрос на ввод нового промпта пользователю {user_id}")
+            logger.info(f"Обновлено сообщение для редактирования промпта пользователем {user_id}, ID: {query.message.message_id}")
         except Exception as e:
             logger.error(f"Ошибка при отправке запроса на ввод нового промпта: {e}", exc_info=True)
             try:
@@ -669,7 +689,7 @@ class CallbackHandler:
                 )
                 # Сохраняем ID нового сообщения
                 self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                logger.info(f"Отправлено новое сообщение с запросом редактирования промпта пользователю {user_id}")
+                logger.info(f"Отправлено новое сообщение для редактирования промпта пользователю {user_id}, ID: {sent_message.message_id}")
             except Exception as send_error:
                 logger.error(f"Не удалось отправить сообщение с запросом нового промпта: {send_error}", exc_info=True)
     
