@@ -112,31 +112,8 @@ class CallbackHandler:
             # Сбрасываем состояние пользователя
             self.state_manager.reset_state(user_id)
             
-            # Проверяем, есть ли у пользователя модели (для кнопки создания видео)
-            has_models = False
-            try:
-                data = {"telegram_id": user_id}
-                async with aiohttp.ClientSession() as session:
-                    async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
-                        if response.status == 200:
-                            models = await response.json()
-                            has_models = len(models) > 0
-                            logger.info(f"Проверка моделей для пользователя {user_id}: {len(models)} моделей")
-            except Exception as e:
-                logger.error(f"Исключение при проверке моделей через API: {e}", exc_info=True)
-            
-            # Создаем основную клавиатуру
-            keyboard = [
-                [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
-                [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
-                [InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")]
-            ]
-            
-            # Добавляем кнопку создания видео, если у пользователя есть модели
-            if has_models:
-                keyboard.append([InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")])
-                
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Используем готовую функцию для создания основной клавиатуры
+            reply_markup = create_main_keyboard()
             
             # Обновляем сообщение
             try:
@@ -400,10 +377,9 @@ class CallbackHandler:
         except Exception as e:
             logger.error(f"Исключение при получении кредитов через API: {e}", exc_info=True)
             credits = 0
-        
         message = f"💰 У вас {credits} кредитов.\n\n" \
-                  f"Каждое обучение модели стоит 1 кредит.\n" \
-                  f"Каждая генерация изображений стоит 1 кредит."
+                  f"🎓 Обучение модели по вашим фотографиям стоит 200 кредитов.\n\n" \
+                  f"🖼 Каждое изображение стоит 3 кредита.\n"
         
         # Создаем клавиатуру с кнопкой "Назад"
         keyboard = [
@@ -679,7 +655,7 @@ class CallbackHandler:
                         
                         # Создаем клавиатуру с кнопкой возврата в главное меню
                         keyboard = [
-                            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+                            [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
                         
@@ -714,7 +690,7 @@ class CallbackHandler:
                         # Создаем клавиатуру с кнопкой повтора и возврата в меню
                         keyboard = [
                             [InlineKeyboardButton("🔄 Повторить", callback_data="start_generation")],
-                            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+                            [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
                         
@@ -741,7 +717,7 @@ class CallbackHandler:
             # Создаем клавиатуру с кнопкой повтора и возврата в меню
             keyboard = [
                 [InlineKeyboardButton("🔄 Повторить", callback_data="start_generation")],
-                [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+                [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -1049,6 +1025,9 @@ class CallbackHandler:
                                     [
                                         InlineKeyboardButton("✅ Повторить попытку", callback_data=f"start_training_{media_group_id}"),
                                         InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
+                                    ],
+                                    [
+                                        InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")
                                     ]
                                 ]
                                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1072,6 +1051,9 @@ class CallbackHandler:
                         [
                             InlineKeyboardButton("✅ Повторить попытку", callback_data=f"start_training_{media_group_id}"),
                             InlineKeyboardButton("🔄 Загрузить фото заново", callback_data="cmd_train")
+                        ],
+                        [
+                            InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1146,9 +1128,9 @@ class CallbackHandler:
         
         message = "🎬 Функция создания видео находится в разработке.\n\nМы сообщим вам, когда эта функция станет доступна!"
         
-        # Создаем клавиатуру с кнопкой "На главную"
+        # Создаем клавиатуру с кнопкой "Начать сначала"
         keyboard = [
-            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+            [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1323,16 +1305,30 @@ class CallbackHandler:
                             self.state_manager.reset_state(user_id)
             except Exception as e:
                 logger.error(f"Исключение при получении изображений: {e}", exc_info=True)
+                
+                # Создаем клавиатуру с кнопкой сброса бота
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
                 await query.edit_message_text(
                     text="Произошла ошибка при получении изображений. Пожалуйста, попробуйте позже.",
-                    reply_markup=create_main_keyboard()
+                    reply_markup=reply_markup
                 )
                 self.state_manager.reset_state(user_id)
         except (ValueError, IndexError) as e:
             logger.error(f"Ошибка при обработке ID модели: {e}", exc_info=True)
+            
+            # Создаем клавиатуру с кнопкой сброса бота
+            keyboard = [
+                [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await query.edit_message_text(
                 text="Ошибка при выборе модели. Пожалуйста, попробуйте снова.",
-                reply_markup=create_main_keyboard()
+                reply_markup=reply_markup
             )
             self.state_manager.reset_state(user_id)
 
@@ -1370,29 +1366,44 @@ class CallbackHandler:
         self.state_manager.set_data(user_id, "video_current_image_index", current_index)
         self.state_manager.set_data(user_id, "video_current_image_url", image_url)
         
+        caption = f"Просмотр изображения {current_index + 1} из {len(images)}.\nВыберите изображение для создания видео или нажмите на кнопки навигации для просмотра других изображений."
+        
         try:
-            # Удаляем предыдущее сообщение
-            try:
-                await query.delete_message()
-            except Exception:
-                pass  # Игнорируем ошибки удаления
+            # Проверяем, существует ли сообщение для редактирования
+            message_id = self.state_manager.get_data(user_id, "video_image_message_id")
             
-            # Отправляем новое сообщение с изображением
-            await context.bot.send_photo(
-                chat_id=user_id,
-                photo=image_url,
-                caption=f"Просмотр изображения {current_index + 1} из {len(images)}.\nВыберите изображение для создания видео или нажмите на кнопки навигации для просмотра других изображений.",
-                reply_markup=reply_markup
-            )
+            if message_id and query:
+                # Редактируем существующее сообщение
+                from telegram import InputMediaPhoto
+                await context.bot.edit_message_media(
+                    chat_id=user_id,
+                    message_id=message_id,
+                    media=InputMediaPhoto(
+                        media=image_url,
+                        caption=caption
+                    ),
+                    reply_markup=reply_markup
+                )
+            else:
+                # Первая отправка сообщения с изображением
+                sent_message = await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=image_url,
+                    caption=caption,
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID сообщения для последующего редактирования
+                self.state_manager.set_data(user_id, "video_image_message_id", sent_message.message_id)
         except Exception as e:
-            logger.error(f"Ошибка при отправке изображения: {e}", exc_info=True)
+            logger.error(f"Ошибка при отправке/редактировании изображения: {e}", exc_info=True)
             try:
                 # В случае ошибки отправляем текстовое сообщение
-                await context.bot.send_message(
+                sent_message = await context.bot.send_message(
                     chat_id=user_id,
                     text=f"Ошибка при загрузке изображения. URL: {image_url}\nПожалуйста, попробуйте выбрать другое изображение.",
                     reply_markup=reply_markup
                 )
+                self.state_manager.set_data(user_id, "video_image_message_id", sent_message.message_id)
             except Exception as send_err:
                 logger.error(f"Ошибка при отправке сообщения об ошибке: {send_err}", exc_info=True)
 
@@ -1413,9 +1424,16 @@ class CallbackHandler:
         
         if not images or current_index is None:
             logger.error(f"Не найдены данные о изображениях для пользователя {user_id}")
+            
+            # Создаем клавиатуру с кнопкой сброса бота
+            keyboard = [
+                [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await query.edit_message_text(
                 text="Ошибка при навигации по изображениям. Пожалуйста, начните заново.",
-                reply_markup=create_main_keyboard()
+                reply_markup=reply_markup
             )
             self.state_manager.reset_state(user_id)
             return
@@ -1449,9 +1467,16 @@ class CallbackHandler:
         
         if not image_url or not model_id:
             logger.error(f"Не найдены данные о выбранном изображении для пользователя {user_id}")
+            
+            # Создаем клавиатуру с кнопкой сброса бота
+            keyboard = [
+                [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await query.edit_message_caption(
                 caption="Ошибка: не найдена информация о выбранном изображении. Пожалуйста, попробуйте выбрать изображение заново.",
-                reply_markup=create_main_keyboard()
+                reply_markup=reply_markup
             )
             self.state_manager.reset_state(user_id)
             return
@@ -1467,7 +1492,7 @@ class CallbackHandler:
         
         # Создаем клавиатуру с кнопкой возврата в главное меню
         keyboard = [
-            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+            [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1504,7 +1529,7 @@ class CallbackHandler:
                         # Создаем клавиатуру с кнопкой повтора
                         keyboard = [
                             [InlineKeyboardButton("🔄 Повторить", callback_data="cmd_video")],
-                            [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+                            [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
                         ]
                         error_reply_markup = InlineKeyboardMarkup(keyboard)
                         
@@ -1518,7 +1543,7 @@ class CallbackHandler:
             # Создаем клавиатуру с кнопкой повтора
             keyboard = [
                 [InlineKeyboardButton("🔄 Повторить", callback_data="cmd_video")],
-                [InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")]
+                [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
             ]
             error_reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -1543,7 +1568,12 @@ class CallbackHandler:
             query: Объект callback_query
             user_id (int): ID пользователя
         """
+        from config import WELCOME_MESSAGE, WELCOME_IMAGE_URL  # Локальный импорт для избежания ошибки
+        
         logger.info(f"Пользователь {user_id} отменил создание видео")
+        
+        # Очищаем ID сообщения с изображением
+        self.state_manager.clear_data(user_id, "video_image_message_id")
         
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
@@ -1570,6 +1600,9 @@ class CallbackHandler:
             logger.error(f"Ошибка при обновлении сообщения отмены: {e}", exc_info=True)
             # В случае ошибки отправляем новое сообщение с меню
             try:
+                # Локальный импорт для избежания ошибки
+                from config import WELCOME_MESSAGE, WELCOME_IMAGE_URL
+                
                 await context.bot.send_photo(
                     chat_id=user_id,
                     photo=WELCOME_IMAGE_URL,

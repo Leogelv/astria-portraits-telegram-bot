@@ -334,7 +334,7 @@ class CommandHandlers:
         if has_models:
             keyboard.append([InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")])
         
-        keyboard.append([InlineKeyboardButton("🔙 На главную", callback_data="cmd_start")])
+        keyboard.append([InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Отправляем сообщение с информацией о кредитах

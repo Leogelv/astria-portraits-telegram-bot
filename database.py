@@ -30,6 +30,10 @@ class DatabaseManager:
     async def create_user(self, user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Создание нового пользователя"""
         try:
+            # Добавляем начальные 210 кредитов для нового пользователя
+            if 'credits' not in user_data:
+                user_data['credits'] = 210
+            
             response = self.supabase.table("telegram_users").insert(user_data).execute()
             if response.data and len(response.data) > 0:
                 logger.info(f"Создан новый пользователь: {response.data[0]}")
