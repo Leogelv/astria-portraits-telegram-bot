@@ -7,7 +7,7 @@ import asyncio
 
 from state_manager import UserState
 from utils.message_utils import delete_message
-from config import ENTER_PROMPT_MESSAGE
+from config import ENTER_PROMPT_MESSAGE, WELCOME_IMAGE_URL
 from utils.logging_utils import LogEventType
 
 class MessageHandler:
@@ -67,8 +67,12 @@ class MessageHandler:
             user_id (int): ID пользователя
         """
         # Пользователь вводит имя модели
-        if len(text) > 50:
-            await update.message.reply_text("Имя модели слишком длинное (максимум 50 символов). Пожалуйста, введите более короткое имя.")
+        if len(text) > 30:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="❌ Название модели не должно превышать 30 символов. Пожалуйста, введите более короткое название."
+            )
+            logger.info(f"Пользователь {user_id} ввел слишком длинное название модели: {len(text)} символов")
             return
         
         # Сохраняем имя модели
@@ -98,9 +102,39 @@ class MessageHandler:
                     reply_markup=reply_markup
                 )
                 logger.info(f"Обновлено сообщение с запросом типа модели для пользователя {user_id}")
+                
+                # Устанавливаем состояние выбора типа модели
+                self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
+                
+                # Удаляем сообщение пользователя для чистоты чата
+                try:
+                    await delete_message(context, user_id, update.message.message_id)
+                    logger.info(f"Удалено текстовое сообщение с именем модели от пользователя {user_id}")
+                except Exception as e:
+                    logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
             except Exception as e:
                 logger.error(f"Ошибка при обновлении сообщения с именем модели: {e}", exc_info=True)
-                # В случае ошибки отправляем новое сообщение
+                # В случае ошибки отправляем сообщение с кнопкой "Начать сначала"
+                try:
+                    # Создаем клавиатуру с кнопкой сброса бота
+                    keyboard = [
+                        [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
+                    ]
+                    error_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="❌ Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже.",
+                        reply_markup=error_markup
+                    )
+                    # Сбрасываем состояние пользователя
+                    self.state_manager.reset_state(user_id)
+                except Exception as err:
+                    logger.error(f"Не удалось отправить сообщение об ошибке: {err}", exc_info=True)
+                    
+        else:
+            # Если нет сохраненного ID сообщения, отправляем новое
+            try:
                 sent_message = await context.bot.send_photo(
                     chat_id=user_id,
                     photo=WELCOME_IMAGE_URL,
@@ -110,28 +144,36 @@ class MessageHandler:
                 # Сохраняем ID нового сообщения
                 self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
                 logger.info(f"Отправлено новое сообщение с запросом типа модели пользователю {user_id}")
-        else:
-            # Если нет сохраненного ID сообщения, отправляем новое
-            sent_message = await context.bot.send_photo(
-                chat_id=user_id,
-                photo=WELCOME_IMAGE_URL,
-                caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                reply_markup=reply_markup
-            )
-            # Сохраняем ID нового сообщения
-            self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
-            logger.info(f"Отправлено новое сообщение с запросом типа модели пользователю {user_id}")
+                
+                # Устанавливаем состояние выбора типа модели
+                self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
+                
+                # Удаляем сообщение пользователя для чистоты чата
+                try:
+                    await delete_message(context, user_id, update.message.message_id)
+                    logger.info(f"Удалено текстовое сообщение с именем модели от пользователя {user_id}")
+                except Exception as e:
+                    logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
+            except Exception as e:
+                logger.error(f"Ошибка при отправке нового сообщения: {e}", exc_info=True)
+                # В случае ошибки отправляем сообщение с кнопкой "Начать сначала"
+                try:
+                    # Создаем клавиатуру с кнопкой сброса бота
+                    keyboard = [
+                        [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
+                    ]
+                    error_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="❌ Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже.",
+                        reply_markup=error_markup
+                    )
+                    # Сбрасываем состояние пользователя
+                    self.state_manager.reset_state(user_id)
+                except Exception as err:
+                    logger.error(f"Не удалось отправить сообщение об ошибке: {err}", exc_info=True)
         
-        # Устанавливаем состояние выбора типа модели
-        self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
-        
-        # Удаляем сообщение пользователя для чистоты чата
-        try:
-            await delete_message(context, user_id, update.message.message_id)
-            logger.info(f"Удалено текстовое сообщение с именем модели от пользователя {user_id}")
-        except Exception as e:
-            logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
-    
     async def _handle_prompt_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, user_id: int) -> None:
         """
         Обработка ввода промпта для генерации изображений
@@ -281,39 +323,69 @@ class MessageHandler:
             text (str): Текст сообщения
             user_id (int): ID пользователя
         """
-        # Пользователь вводит имя модели для медиагруппы
-        if len(text) > 50:
-            await update.message.reply_text("Имя модели слишком длинное (максимум 50 символов). Пожалуйста, введите более короткое имя.")
-            return
+        logger.info(f"Обработка названия модели для медиа-группы от пользователя {user_id}: {text}")
         
-        # Сохраняем имя модели
+        # Проверяем длину названия модели
+        if len(text) > 30:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="❌ Название модели не должно превышать 30 символов. Пожалуйста, введите более короткое название."
+            )
+            return
+            
+        # Сохраняем название модели
         self.state_manager.set_data(user_id, "model_name", text)
-        logger.info(f"Пользователь {user_id} ввел имя модели для медиагруппы: {text}")
         
         # Создаем клавиатуру для выбора типа модели
         keyboard = [
             [
-                InlineKeyboardButton("Мужская", callback_data="mgtype_male"),
-                InlineKeyboardButton("Женская", callback_data="mgtype_female")
+                InlineKeyboardButton("👨 Мужская", callback_data="mgtype_male"),
+                InlineKeyboardButton("👩 Женская", callback_data="mgtype_female")
             ],
             [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            f"Название модели: {text}\n\nТеперь выберите тип модели:",
-            reply_markup=reply_markup
-        )
-        
-        # Устанавливаем состояние выбора типа модели для медиагруппы
-        self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE_FOR_MEDIA_GROUP)
-        
-        # Удаляем сообщение пользователя для чистоты чата
         try:
-            await delete_message(context, user_id, update.message.message_id)
-            logger.info(f"Удалено текстовое сообщение с именем модели для медиагруппы от пользователя {user_id}")
+            # Отправляем сообщение с запросом типа модели
+            sent_message = await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
+                reply_markup=reply_markup
+            )
+            
+            # Сохраняем ID сообщения
+            self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+            
+            # Устанавливаем состояние выбора типа модели для медиа-группы
+            self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE_FOR_MEDIA_GROUP)
+            
+            # Пытаемся удалить сообщение пользователя для чистоты чата
+            try:
+                await context.bot.delete_message(chat_id=user_id, message_id=update.message.message_id)
+                logger.info(f"Удалено сообщение с названием модели от пользователя {user_id}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить сообщение пользователя {user_id}: {e}")
+                
+            logger.info(f"Запрошен тип модели для медиа-группы у пользователя {user_id}")
         except Exception as e:
-            logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
+            logger.error(f"Ошибка при обработке названия модели для медиа-группы: {e}", exc_info=True)
+            try:
+                # Создаем клавиатуру с кнопкой сброса бота
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
+                ]
+                error_markup = InlineKeyboardMarkup(keyboard)
+                
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="❌ Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже.",
+                    reply_markup=error_markup
+                )
+                # Сбрасываем состояние пользователя
+                self.state_manager.reset_state(user_id)
+            except Exception as err:
+                logger.error(f"Не удалось отправить сообщение об ошибке: {err}", exc_info=True)
     
     async def _handle_unknown_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
         """
