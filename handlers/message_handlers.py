@@ -376,7 +376,7 @@ class MessageHandler:
                 logger.info(f"Название модели было нормализовано: {text} -> {model_name}")
             
             # Сохраняем название модели в состоянии пользователя
-            self.state_manager.update_data(user_id, model_name=model_name)
+            self.state_manager.set_data(user_id, "model_name", model_name)
             
             # Получаем данные пользователя
             user_data = self.state_manager.get_data(user_id)
@@ -428,7 +428,7 @@ class MessageHandler:
                     logger.info(f"Отправлено новое сообщение с фото для пользователя {user_id}")
                     
                     # Сохраняем message_id для будущих редактирований
-                    self.state_manager.update_data(user_id, message_id=message.message_id)
+                    self.state_manager.set_data(user_id, "message_id", message.message_id)
                     
                 except Exception as photo_err:
                     logger.error(f"Ошибка при отправке фото: {photo_err}", exc_info=True)
@@ -444,7 +444,7 @@ class MessageHandler:
                         logger.info(f"Отправлено новое текстовое сообщение для пользователя {user_id}")
                         
                         # Сохраняем message_id для будущих редактирований
-                        self.state_manager.update_data(user_id, message_id=message.message_id)
+                        self.state_manager.set_data(user_id, "message_id", message.message_id)
                         
                     except Exception as text_send_err:
                         logger.error(f"Ошибка при отправке текстового сообщения: {text_send_err}", exc_info=True)

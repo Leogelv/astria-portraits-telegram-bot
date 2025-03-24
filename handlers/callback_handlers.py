@@ -186,7 +186,7 @@ class CallbackHandler:
         
         # Получаем chat_id
         chat_id = update.effective_chat.id if update.effective_chat else user_id
-        self.state_manager.update_data(user_id, chat_id=chat_id)
+        self.state_manager.set_data(user_id, "chat_id", chat_id)
         
         # Сбрасываем состояние пользователя (сохраняем chat_id)
         self.state_manager.clear_data(user_id, preserve_keys=['chat_id'])
@@ -223,7 +223,7 @@ class CallbackHandler:
             logger.info(f"Обновлено сообщение с запросом названия модели для пользователя {user_id}")
             # Если успешно отредактировали, то сохраняем message_id для будущих редактирований
             message_id = query.message.message_id
-            self.state_manager.update_data(user_id, message_id=message_id)
+            self.state_manager.set_data(user_id, "message_id", message_id)
         else:
             # В случае ошибки отправляем новое сообщение
             try:
@@ -249,7 +249,7 @@ class CallbackHandler:
                     logger.info(f"Отправлено новое текстовое сообщение для пользователя {user_id}")
                 
                 # Сохраняем ID сообщения для будущих редактирований
-                self.state_manager.update_data(user_id, message_id=message.message_id)
+                self.state_manager.set_data(user_id, "message_id", message.message_id)
                 
             except Exception as e:
                 logger.error(f"Ошибка при отправке сообщения с запросом названия модели: {e}", exc_info=True)
