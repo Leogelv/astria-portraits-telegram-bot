@@ -312,6 +312,10 @@ class CallbackHandler:
         """
         logger.info(f"Начинаю обработку команды generate из callback для пользователя {user_id}")
         
+        # Получаем chat_id
+        chat_id = update.effective_chat.id if update.effective_chat else user_id
+        self.state_manager.set_data(user_id, "chat_id", chat_id)
+        
         # Получаем модели пользователя через API запрос
         try:
             data = {"telegram_id": user_id}
@@ -329,17 +333,26 @@ class CallbackHandler:
         
         if not models:
             # Редактируем текущее сообщение
-            try:
-                await query.edit_message_caption(
-                    caption="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
-                )
+            message_text = "У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+            
+            edit_success = await self.edit_message(
+                context=context,
+                query=query,
+                chat_id=chat_id,
+                caption=message_text,
+                text=message_text
+            )
+            
+            if edit_success:
                 logger.info(f"Обновлено сообщение для пользователя {user_id} - нет моделей")
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+            else:
+                # Если не удалось отредактировать, отправляем новое сообщение
                 await context.bot.send_message(
-                    chat_id=user_id,
-                    text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+                    chat_id=chat_id,
+                    text=message_text
                 )
+                logger.info(f"Отправлено новое сообщение для пользователя {user_id} - нет моделей")
+            
             logger.info(f"Пользователь {user_id} не имеет моделей")
             return
         
@@ -360,33 +373,39 @@ class CallbackHandler:
         self.state_manager.set_state(user_id, UserState.SELECTING_MODEL)
         logger.info(f"Установлено состояние SELECTING_MODEL для пользователя {user_id}")
         
-        # Пробуем изменить текущее сообщение
-        try:
-            await query.edit_message_caption(
-                caption="Выберите модель для генерации изображений:",
-                reply_markup=reply_markup
-            )
+        message_text = "Выберите модель для генерации изображений:"
+        
+        # Редактируем сообщение с помощью нашего метода
+        edit_success = await self.edit_message(
+            context=context,
+            query=query,
+            chat_id=chat_id,
+            caption=message_text,
+            text=message_text,
+            reply_markup=reply_markup
+        )
+        
+        if edit_success:
             logger.info(f"Обновлено сообщение для выбора модели пользователем {user_id}")
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении сообщения для выбора модели: {e}", exc_info=True)
-            
+        else:
             # Если не получилось изменить текущее сообщение, отправляем новое
             try:
                 await context.bot.send_photo(
-                    chat_id=user_id,
+                    chat_id=chat_id,
                     photo=WELCOME_IMAGE_URL,
-                    caption="Выберите модель для генерации изображений:",
+                    caption=message_text,
                     reply_markup=reply_markup
                 )
-                logger.info(f"Отправлен список моделей пользователю {user_id}")
-            except Exception as send_err:
-                logger.error(f"Ошибка при отправке списка моделей: {send_err}", exc_info=True)
-                # Если не удалось отправить фото, отправляем текстовое сообщение
+                logger.info(f"Отправлено новое сообщение с выбором модели пользователю {user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке фото с выбором модели: {e}", exc_info=True)
+                # В крайнем случае отправляем текстовое сообщение
                 await context.bot.send_message(
-                    chat_id=user_id,
-                    text="Выберите модель для генерации изображений:",
+                    chat_id=chat_id,
+                    text=message_text,
                     reply_markup=reply_markup
                 )
+                logger.info(f"Отправлено текстовое сообщение с выбором модели пользователю {user_id}")
     
     async def _handle_cmd_credits(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """
@@ -1657,7 +1676,7 @@ class CallbackHandler:
 
     async def edit_message(self, context: ContextTypes.DEFAULT_TYPE, query, chat_id: int, 
                           text: Optional[str] = None, caption: Optional[str] = None,
-                          reply_markup = None) -> bool:
+                          reply_markup = None, parse_mode = ParseMode.HTML) -> bool:
         """
         Редактирует сообщение через context.bot вместо query напрямую
         
@@ -1668,6 +1687,7 @@ class CallbackHandler:
             text (Optional[str]): Текст сообщения для редактирования (для текстовых сообщений)
             caption (Optional[str]): Подпись сообщения для редактирования (для сообщений с медиа)
             reply_markup: Разметка клавиатуры
+            parse_mode: Режим форматирования текста (по умолчанию HTML)
             
         Returns:
             bool: True если редактирование успешно, False в случае ошибки
@@ -1681,6 +1701,7 @@ class CallbackHandler:
                     chat_id=chat_id,
                     message_id=message_id,
                     caption=caption,
+                    parse_mode=parse_mode,
                     reply_markup=reply_markup
                 )
                 return True
@@ -1690,6 +1711,7 @@ class CallbackHandler:
                     chat_id=chat_id,
                     message_id=message_id,
                     text=text,
+                    parse_mode=parse_mode,
                     reply_markup=reply_markup
                 )
                 return True
@@ -1702,5 +1724,5 @@ class CallbackHandler:
                 )
                 return True
         except Exception as e:
-            logger.error(f"Ошибка при редактировании сообщения: {e}", exc_info=True)
+            logger.warning(f"Ошибка при редактировании сообщения: {e}")
             return False
