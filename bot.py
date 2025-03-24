@@ -99,9 +99,10 @@ class AstriaBot:
                 "username": username,
                 "first_name": first_name,
                 "last_name": last_name,
-                "credits": 0,
+                "credits": 210,  # Добавляем начальные 210 кредитов
             }
             await self.db.create_user(user_data)
+            logger.info(f"Пользователю {user_id} начислено 210 стартовых кредитов")
         else:
             # Обновляем данные пользователя, если они изменились
             if (
@@ -154,14 +155,14 @@ class AstriaBot:
                 reply_markup=reply_markup
             )
             logger.info(f"Отправлено текстовое welcome сообщение пользователю {user_id}")
-        
-        # Удаляем сообщение пользователя для чистоты чата
-        if update.message:
-            try:
-                await update.message.delete()
-                logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
-            except Exception as e:
-                logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
+            
+            # Удаляем сообщение пользователя для чистоты чата
+            if update.message:
+                try:
+                    await update.message.delete()
+                    logger.info(f"Удалено сообщение команды /start от пользователя {user_id}")
+                except Exception as e:
+                    logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /help"""
@@ -702,8 +703,8 @@ class AstriaBot:
                         sent_message = await context.bot.send_message(
                             chat_id=user_id,
                             text=f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
-                            reply_markup=reply_markup
-                        )
+                        reply_markup=reply_markup
+                    )
                         # Обновляем ID сообщения
                         self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
                         logger.info(f"Отправлено новое сообщение с промптом пользователю {user_id}")
@@ -713,12 +714,12 @@ class AstriaBot:
                 # Если нет сохраненного ID сообщения, отправляем новое
                 try:
                     sent_message = await update.message.reply_text(
-                        f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
-                        reply_markup=reply_markup
-                    )
+                    f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом.",
+                    reply_markup=reply_markup
+                )
                     # Сохраняем ID нового сообщения
                     self.state_manager.set_data(user_id, "prompt_message_id", sent_message.message_id)
-                    logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id}")
+                logger.info(f"Отправлено сообщение с подтверждением промпта пользователю {user_id}")
                 except Exception as e:
                     logger.error(f"Не удалось отправить сообщение с промптом: {e}", exc_info=True)
             
@@ -800,7 +801,7 @@ class AstriaBot:
             
             # Сбрасываем состояние пользователя
             self.state_manager.reset_state(user_id)
-        
+            
         elif state == UserState.SELECTING_MODEL_TYPE:
             # Выбор типа модели
             model_type = text
@@ -867,32 +868,32 @@ class AstriaBot:
                 model_type = self.state_manager.get_data(user_id, "model_type")
                 
                 # Создаем клавиатуру для подтверждения
-                keyboard = [
-                    [
+                            keyboard = [
+                                [
                         InlineKeyboardButton("Да, начать обучение", callback_data="start_training"),
                         InlineKeyboardButton("Отмена", callback_data="cancel_training")
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
+                                ]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            
                 # Отправляем сообщение о завершении загрузки и запрос на подтверждение
-                await context.bot.send_message(
-                    chat_id=user_id,
+                                        await context.bot.send_message(
+                                            chat_id=user_id,
                     text=f"✅ Все фотографии ({photo_count}) успешно загружены!\n\n"
                          f"Данные для обучения модели:\n"
                          f"Название: {model_name}\n"
                          f"Тип: {'Мужчина' if model_type == 'male' else 'Женщина'}\n"
                          f"Количество фотографий: {photo_count}\n\n"
                          f"Начать обучение модели?",
-                    reply_markup=reply_markup
-                )
+                                            reply_markup=reply_markup
+                                        )
                 logger.info(f"Отправлен запрос на подтверждение обучения модели пользователю {user_id}")
-        else:
+                            else:
             # Неизвестный callback
             logger.warning(f"Получен неизвестный callback от пользователя {user_id}: {state}")
             try:
                 await query.answer("Неизвестная команда")
-            except Exception as e:
+                                except Exception as e:
                 logger.error(f"Ошибка при ответе на неизвестный callback: {e}", exc_info=True)
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -930,7 +931,7 @@ class AstriaBot:
             await self.edit_prompt(update, context)
         elif query.data == "cancel_generation":
             await self.cancel_generation(update, context)
-        else:
+                else:
             logger.warning(f"Получен неизвестный callback от пользователя {user_id}: {query.data}")
             try:
                 await query.answer("Неизвестная команда")

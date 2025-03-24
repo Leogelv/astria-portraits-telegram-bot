@@ -85,9 +85,10 @@ class AstriaBot:
                 "username": username,
                 "first_name": first_name,
                 "last_name": last_name,
-                "credits": 0,
+                "credits": 210,  # Добавляем начальные 210 кредитов
             }
             await self.db.create_user(user_data)
+            logger.info(f"Пользователю {user_id} начислено 210 стартовых кредитов")
         else:
             # Обновляем данные пользователя, если они изменились
             if (
