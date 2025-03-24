@@ -117,7 +117,7 @@ class CommandHandlers:
             logger.info(f"Сохранен chat_id: {chat_id} для пользователя {user_id}")
             
             await context.bot.send_photo(
-                chat_id=chat_id,  # Используем ID чата, а не пользователя
+                chat_id=chat_id,  # Используем chat_id
                 photo=WELCOME_IMAGE_URL,
                 caption=WELCOME_MESSAGE,
                 reply_markup=reply_markup
@@ -163,10 +163,17 @@ class CommandHandlers:
 
     async def train_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /train"""
-        if not update.effective_user:
+        if not update.effective_user or not update.effective_chat:
+            logger.error("Не удалось получить информацию о пользователе или чате")
             return
         
         user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        
+        # Сохраняем chat_id в state_manager для последующего использования
+        self.state_manager.set_data(user_id, "chat_id", chat_id)
+        logger.info(f"Сохранен chat_id: {chat_id} для пользователя {user_id}")
+        
         logger.info(f"Пользователь {user_id} запустил команду /train")
         
         # Создаем клавиатуру с кнопкой отмены
@@ -177,13 +184,13 @@ class CommandHandlers:
         
         # Устанавливаем состояние ввода имени модели
         self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
-        self.state_manager.clear_data(user_id)
+        self.state_manager.clear_data(user_id, preserve_keys=["chat_id"]) # Сохраняем chat_id при очистке данных
         logger.info(f"Установлено состояние ENTERING_MODEL_NAME для пользователя {user_id}")
         
         # Отправляем сообщение с фото для ввода имени модели
         try:
             sent_message = await context.bot.send_photo(
-                chat_id=user_id,
+                chat_id=chat_id,  # Используем chat_id
                 photo=WELCOME_IMAGE_URL,
                 caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
                 reply_markup=reply_markup
@@ -194,13 +201,20 @@ class CommandHandlers:
         except Exception as e:
             logger.error(f"Ошибка при отправке запроса имени модели: {e}", exc_info=True)
             # В случае ошибки отправляем простое текстовое сообщение
-            sent_message = await update.message.reply_text(
-                "📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                reply_markup=reply_markup
-            )
-            # Сохраняем ID сообщения для последующего редактирования
-            self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
-            logger.info(f"Отправлен текстовый запрос имени модели пользователю {user_id}, ID сообщения: {sent_message.message_id}")
+            try:
+                sent_message = await context.bot.send_message(
+                    chat_id=chat_id,  # Используем chat_id
+                    text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID сообщения для последующего редактирования
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                logger.info(f"Отправлен текстовый запрос имени модели пользователю {user_id}, ID сообщения: {sent_message.message_id}")
+            except Exception as text_send_error:
+                logger.error(f"Не удалось отправить даже текстовое сообщение: {text_send_error}", exc_info=True)
+                # Если не удалось отправить даже текстовое сообщение, сбрасываем состояние
+                self.state_manager.reset_state(user_id)
+                return
         
         # Удаляем сообщение пользователя для чистоты чата
         if update.message:

@@ -86,18 +86,38 @@ class StateManager:
             self.user_data[user_id].update(data)
             logger.debug(f"Обновлены данные пользователя {user_id}: {data}")
 
-    def clear_data(self, user_id: int, key: Optional[str] = None) -> None:
-        """Очистка данных пользователя"""
+    def clear_data(self, user_id: int, key: Optional[str] = None, preserve_keys: Optional[List[str]] = None) -> None:
+        """
+        Очистка данных пользователя
+        
+        Args:
+            user_id (int): ID пользователя
+            key (Optional[str]): Конкретный ключ для очистки (если указан)
+            preserve_keys (Optional[List[str]]): Список ключей, которые нужно сохранить при полной очистке
+        """
         with self.lock:
             if user_id not in self.user_data:
                 return
             
-            if key is None:
-                self.user_data[user_id] = {}
-                logger.debug(f"Очищены все данные пользователя {user_id}")
-            elif key in self.user_data[user_id]:
-                del self.user_data[user_id][key]
-                logger.debug(f"Очищены данные пользователя {user_id}: {key}")
+            if key:
+                if key in self.user_data[user_id]:
+                    del self.user_data[user_id][key]
+                    logger.debug(f"Удалены данные пользователя {user_id} с ключом {key}")
+            else:
+                if preserve_keys:
+                    # Сохраняем данные, которые должны быть сохранены
+                    preserved_data = {}
+                    for preserve_key in preserve_keys:
+                        if preserve_key in self.user_data[user_id]:
+                            preserved_data[preserve_key] = self.user_data[user_id][preserve_key]
+                    
+                    # Очищаем данные и восстанавливаем сохраненные
+                    self.user_data[user_id] = preserved_data
+                    logger.debug(f"Очищены данные пользователя {user_id} с сохранением ключей: {preserve_keys}")
+                else:
+                    # Полная очистка
+                    self.user_data[user_id] = {}
+                    logger.debug(f"Полностью очищены данные пользователя {user_id}")
 
     def add_to_list(self, user_id: int, key: str, value: Any) -> None:
         """Добавление значения в список данных пользователя"""
