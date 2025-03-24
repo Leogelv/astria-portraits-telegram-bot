@@ -223,7 +223,8 @@ class CallbackHandler:
             logger.info(f"Обновлено сообщение с запросом названия модели для пользователя {user_id}")
             # Если успешно отредактировали, то сохраняем message_id для будущих редактирований
             message_id = query.message.message_id
-            self.state_manager.set_data(user_id, "message_id", message_id)
+            self.state_manager.set_data(user_id, "base_message_id", message_id)
+            logger.info(f"Сохранен base_message_id={message_id} для пользователя {user_id}")
         else:
             # В случае ошибки отправляем новое сообщение
             try:
@@ -249,7 +250,8 @@ class CallbackHandler:
                     logger.info(f"Отправлено новое текстовое сообщение для пользователя {user_id}")
                 
                 # Сохраняем ID сообщения для будущих редактирований
-                self.state_manager.set_data(user_id, "message_id", message.message_id)
+                self.state_manager.set_data(user_id, "base_message_id", message.message_id)
+                logger.info(f"Сохранен base_message_id={message.message_id} для пользователя {user_id}")
                 
             except Exception as e:
                 logger.error(f"Ошибка при отправке сообщения с запросом названия модели: {e}", exc_info=True)
