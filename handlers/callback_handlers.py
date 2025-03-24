@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import ContextTypes
 from loguru import logger
 from typing import Dict, Any, Optional, List
@@ -173,7 +173,7 @@ class CallbackHandler:
     
     async def _handle_cmd_train(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """
-        Обработка команды train из callback
+        Обрабатывает команду /train для создания новой модели
         
         Args:
             update (Update): Объект обновления Telegram
@@ -181,69 +181,77 @@ class CallbackHandler:
             query: Объект callback_query
             user_id (int): ID пользователя
         """
-        logger.info(f"Начинаю обработку команды train из callback для пользователя {user_id}")
+        logger.info(f"Пользователь {user_id} запрашивает создание новой модели")
         
-        # Получаем chat_id (в callback это всегда будет совпадать с user_id)
+        # Получаем chat_id
         chat_id = update.effective_chat.id if update.effective_chat else user_id
-        # Сохраняем chat_id для последующего использования
-        self.state_manager.set_data(user_id, "chat_id", chat_id)
+        self.state_manager.update_data(user_id, chat_id=chat_id)
+        
+        # Сбрасываем состояние пользователя (сохраняем chat_id)
+        self.state_manager.clear_data(user_id, preserve_keys=['chat_id'])
+        
+        # Устанавливаем состояние пользователя на ENTERING_MODEL_NAME
+        self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
         
         # Создаем клавиатуру с кнопкой отмены
         keyboard = [
-            [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
+            [
+                InlineKeyboardButton("Отмена", callback_data=f"cancel_generation")
+            ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Устанавливаем состояние ввода имени модели
-        self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
-        self.state_manager.clear_data(user_id, preserve_keys=["chat_id"])  # Сохраняем chat_id
-        logger.info(f"Установлено состояние ENTERING_MODEL_NAME для пользователя {user_id}")
+        # Формируем текст сообщения
+        message_text = (
+            "Вы начали процесс обучения новой модели.\n\n"
+            "Сначала придумайте название модели (до 30 символов).\n"
+            "<i>* название может содержать только буквы, цифры и символы _ - .</i>"
+        )
         
-        # Пробуем изменить текущее сообщение
-        try:
-            # ВАЖНО: Сохраняем ID сообщения для последующего редактирования
+        # Отправляем сообщение о начале процесса обучения
+        edit_success = await self.edit_message(
+            context=context,
+            query=query,
+            chat_id=chat_id,
+            text=message_text,
+            caption=message_text,
+            reply_markup=reply_markup
+        )
+        
+        if edit_success:
+            logger.info(f"Обновлено сообщение с запросом названия модели для пользователя {user_id}")
+            # Если успешно отредактировали, то сохраняем message_id для будущих редактирований
             message_id = query.message.message_id
-            self.state_manager.set_data(user_id, "base_message_id", message_id)
-            logger.info(f"Сохранен base_message_id={message_id} для пользователя {user_id}")
-            
-            # Проверяем, есть ли в сообщении подпись (caption)
-            if query.message.caption is not None:
-                await query.edit_message_caption(
-                    caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Обновлена подпись сообщения для пользователя {user_id}")
-            else:
-                # Если подписи нет, редактируем текст
-                await query.edit_message_text(
-                    text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Обновлен текст сообщения для пользователя {user_id}")
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
+            self.state_manager.update_data(user_id, message_id=message_id)
+        else:
             # В случае ошибки отправляем новое сообщение
             try:
-                sent_message = await context.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=WELCOME_IMAGE_URL,
-                    caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                    reply_markup=reply_markup
-                )
-                # Сохраняем ID нового сообщения
-                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
-                logger.info(f"Отправлено новое сообщение с фото с ID {sent_message.message_id} пользователю {user_id}")
-            except Exception as photo_err:
-                logger.error(f"Ошибка при отправке сообщения с фото: {photo_err}", exc_info=True)
-                # Если и это не удалось, отправляем текстовое сообщение
-                sent_message = await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                    reply_markup=reply_markup
-                )
-                # Сохраняем ID нового сообщения
-                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
-                logger.info(f"Отправлен запрос имени модели пользователю {user_id}, ID сообщения: {sent_message.message_id}")
+                # Попробуем отправить фото
+                try:
+                    message = await context.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=WELCOME_IMAGE_URL,
+                        caption=message_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлено новое сообщение с фото для пользователя {user_id}")
+                except Exception as photo_err:
+                    logger.error(f"Ошибка при отправке фото: {photo_err}", exc_info=True)
+                    # Если с фото не получилось, отправляем обычное сообщение
+                    message = await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=message_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлено новое текстовое сообщение для пользователя {user_id}")
+                
+                # Сохраняем ID сообщения для будущих редактирований
+                self.state_manager.update_data(user_id, message_id=message.message_id)
+                
+            except Exception as e:
+                logger.error(f"Ошибка при отправке сообщения с запросом названия модели: {e}", exc_info=True)
     
     async def _handle_cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """
@@ -835,35 +843,35 @@ class CallbackHandler:
         """
         logger.info(f"Пользователь {user_id} отменил генерацию изображений")
         
+        # Получаем chat_id
+        chat_id = update.effective_chat.id if update.effective_chat else user_id
+        
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
         
         # Используем функцию для создания основной клавиатуры
         reply_markup = create_main_keyboard()
         
+        cancel_message = "Генерация изображений отменена.\n\nВыберите действие:"
+        
         # Отправляем сообщение об отмене и возвращаемся в главное меню
-        try:
-            # Проверяем, есть ли caption в сообщении
-            if hasattr(query.message, 'caption') and query.message.caption is not None:
-                await query.edit_message_caption(
-                    caption="Генерация изображений отменена.\n\nВыберите действие:",
-                    reply_markup=reply_markup
-                )
-            else:
-                # Если caption нет, меняем текст
-                await query.edit_message_text(
-                    text="Генерация изображений отменена.\n\nВыберите действие:",
-                    reply_markup=reply_markup
-                )
+        edit_success = await self.edit_message(
+            context=context,
+            query=query,
+            chat_id=chat_id,
+            text=cancel_message,
+            caption=cancel_message,
+            reply_markup=reply_markup
+        )
+        
+        if edit_success:
             logger.info(f"Обновлено сообщение с отменой генерации для пользователя {user_id}")
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении сообщения с отменой генерации: {e}", exc_info=True)
-            
+        else:
             # В случае ошибки отправляем новое сообщение
             try:
                 await context.bot.send_message(
-                    chat_id=user_id,
-                    text="Генерация изображений отменена.\n\nВыберите действие:",
+                    chat_id=chat_id,
+                    text=cancel_message,
                     reply_markup=reply_markup
                 )
                 logger.info(f"Отправлено сообщение с отменой генерации пользователю {user_id}")
@@ -884,6 +892,15 @@ class CallbackHandler:
         model_type = callback_data.split("_")[1]
         logger.info(f"Пользователь {user_id} выбрал тип модели: {model_type}")
         
+        # Получаем chat_id
+        chat_id = update.effective_chat.id if update.effective_chat else user_id
+        self.state_manager.set_data(user_id, "chat_id", chat_id)
+        
+        # Сохраняем ID сообщения для последующего использования
+        message_id = query.message.message_id
+        self.state_manager.set_data(user_id, "base_message_id", message_id)
+        logger.info(f"Сохранен base_message_id={message_id} для пользователя {user_id}")
+        
         # Сохраняем тип модели
         self.state_manager.set_data(user_id, "model_type", model_type)
         
@@ -896,32 +913,23 @@ class CallbackHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Редактируем то же самое сообщение
-        try:
-            # Проверяем, есть ли caption в сообщении
-            if hasattr(query.message, 'caption') and query.message.caption is not None:
-                await query.edit_message_caption(
-                    caption=UPLOAD_PHOTOS_MESSAGE,
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Обновлено сообщение с инструкциями по загрузке фото для пользователя {user_id}")
-            else:
-                # Если caption нет, меняем текст
-                await query.edit_message_text(
-                    text=UPLOAD_PHOTOS_MESSAGE,
-                    reply_markup=reply_markup
-                )
-                logger.info(f"Обновлено текстовое сообщение с инструкциями для пользователя {user_id}")
-                
-            # Сохраняем ID сообщения для последующего редактирования (если не было сохранено ранее)
-            self.state_manager.set_data(user_id, "base_message_id", query.message.message_id)
-            
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении сообщения с инструкциями: {e}", exc_info=True)
-            # В случае ошибки отправляем новое сообщение с фото
+        # Редактируем сообщение с помощью нашей вспомогательной функции
+        edit_success = await self.edit_message(
+            context=context,
+            query=query,
+            chat_id=chat_id,
+            text=UPLOAD_PHOTOS_MESSAGE,
+            caption=UPLOAD_PHOTOS_MESSAGE,
+            reply_markup=reply_markup
+        )
+        
+        if edit_success:
+            logger.info(f"Обновлено сообщение с инструкциями по загрузке фото для пользователя {user_id}")
+        else:
+            # В случае ошибки отправляем новое сообщение
             try:
                 sent_message = await context.bot.send_photo(
-                    chat_id=user_id,
+                    chat_id=chat_id,
                     photo=INSTRUCTIONS_IMAGE_URL,
                     caption=UPLOAD_PHOTOS_MESSAGE,
                     reply_markup=reply_markup
@@ -934,7 +942,7 @@ class CallbackHandler:
                 
                 # Если и это не удалось, отправляем текстовое сообщение
                 sent_message = await context.bot.send_message(
-                    chat_id=user_id,
+                    chat_id=chat_id,
                     text=UPLOAD_PHOTOS_MESSAGE,
                     reply_markup=reply_markup
                 )
@@ -1646,3 +1654,53 @@ class CallbackHandler:
                 logger.info(f"Отправлено новое welcome сообщение пользователю {user_id}")
             except Exception as send_err:
                 logger.error(f"Ошибка при отправке нового welcome сообщения: {send_err}", exc_info=True)
+
+    async def edit_message(self, context: ContextTypes.DEFAULT_TYPE, query, chat_id: int, 
+                          text: Optional[str] = None, caption: Optional[str] = None,
+                          reply_markup = None) -> bool:
+        """
+        Редактирует сообщение через context.bot вместо query напрямую
+        
+        Args:
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback_query
+            chat_id (int): ID чата для отправки сообщений
+            text (Optional[str]): Текст сообщения для редактирования (для текстовых сообщений)
+            caption (Optional[str]): Подпись сообщения для редактирования (для сообщений с медиа)
+            reply_markup: Разметка клавиатуры
+            
+        Returns:
+            bool: True если редактирование успешно, False в случае ошибки
+        """
+        try:
+            message_id = query.message.message_id
+            
+            # Проверяем, есть ли caption в сообщении
+            if caption is not None and hasattr(query.message, 'caption'):
+                await context.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=caption,
+                    reply_markup=reply_markup
+                )
+                return True
+            elif text is not None:
+                # Редактируем текст
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    reply_markup=reply_markup
+                )
+                return True
+            else:
+                # Редактируем только разметку клавиатуры
+                await context.bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=reply_markup
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка при редактировании сообщения: {e}", exc_info=True)
+            return False

@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import ContextTypes, CallbackContext
 from loguru import logger
 from typing import Dict, Any, Optional
@@ -355,156 +355,136 @@ class MessageHandler:
     
     async def _handle_model_name_for_media_group(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, user_id: int) -> None:
         """
-        Обрабатывает ввод названия модели для загрузки медиа-группы.
+        Обработка ввода названия модели для группы медиафайлов
         
         Args:
-            update (Update): Объект обновления Telegram
-            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
-            text (str): Текст сообщения
+            update (Update): Объект обновления
+            context (ContextTypes.DEFAULT_TYPE): Контекст бота
+            text (str): Текст сообщения (название модели)
             user_id (int): ID пользователя
         """
-        # Получаем ID чата для отправки сообщений
-        chat_id = update.effective_chat.id if update.effective_chat else None
-        # Сохраняем chat_id на всякий случай
-        if chat_id:
-            self.state_manager.set_data(user_id, "chat_id", chat_id)
-        else:
-            # Пытаемся получить сохраненный chat_id
-            chat_id = self.state_manager.get_data(user_id, "chat_id")
-            if not chat_id:
-                # Если нет сохраненного chat_id, используем user_id
-                chat_id = user_id
-                logger.warning(f"Не удалось получить chat_id для пользователя {user_id}, используем user_id")
-
-        logger.info(f"Обработка названия модели для медиа-группы от пользователя {user_id}: {text}")
-        
-        # Проверяем длину названия модели
-        if len(text) > 30:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="❌ Название модели не должно превышать 30 символов. Пожалуйста, введите более короткое название."
-            )
-            return
-            
-        # Сохраняем название модели
-        self.state_manager.set_data(user_id, "model_name", text)
-        
-        # Создаем клавиатуру для выбора типа модели
-        keyboard = [
-            [
-                InlineKeyboardButton("👨 Мужская", callback_data="mgtype_male"),
-                InlineKeyboardButton("👩 Женская", callback_data="mgtype_female")
-            ],
-            [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Получаем ID сообщения для редактирования
-        base_message_id = self.state_manager.get_data(user_id, "base_message_id")
-        
         try:
-            if base_message_id:
-                # Пробуем редактировать существующее сообщение
-                try:
-                    # Сначала пробуем редактировать как подпись (если это сообщение с фото)
-                    await context.bot.edit_message_caption(
-                        chat_id=chat_id,
-                        message_id=base_message_id,
-                        caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Обновлена подпись сообщения для выбора типа модели пользователя {user_id}")
-                except Exception as caption_error:
-                    # Если не получилось как подпись, пробуем как текст
-                    logger.info(f"Не удалось обновить caption: {caption_error}, пробуем текст")
-                    await context.bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=base_message_id,
-                        text=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Обновлен текст сообщения для выбора типа модели пользователя {user_id}")
-            else:
-                # Если нет ID, пробуем найти предыдущее сообщение бота
-                try:
-                    # Отправляем временное сообщение для получения ref на последнее в истории
-                    temp_message = await context.bot.send_message(
-                        chat_id=chat_id,
-                        text="Обрабатываем ваш запрос..."
-                    )
-                    
-                    # Используем предыдущее сообщение (перед временным) как base_message_id
-                    base_message_id = temp_message.message_id - 1
-                    
-                    # Сохраняем ID найденного сообщения
-                    self.state_manager.set_data(user_id, "base_message_id", base_message_id)
-                    
-                    # Удаляем временное сообщение
-                    await context.bot.delete_message(chat_id=chat_id, message_id=temp_message.message_id)
-                    
-                    logger.info(f"Используем предыдущее сообщение с ID: {base_message_id}")
-                    
-                    # Пробуем редактировать найденное сообщение
-                    try:
-                        # Пробуем сначала как caption (фото)
-                        await context.bot.edit_message_caption(
-                            chat_id=chat_id,
-                            message_id=base_message_id,
-                            caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Обновлена подпись сообщения с запросом типа модели для пользователя {user_id}")
-                    except Exception as caption_error:
-                        # Если не получилось редактировать как подпись, пробуем как текст
-                        logger.info(f"Не удалось обновить caption: {caption_error}, пробуем текст")
-                        await context.bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=base_message_id,
-                            text=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Обновлен текст сообщения с запросом типа модели для пользователя {user_id}")
-                except Exception as edit_error:
-                    logger.error(f"Не удалось найти и отредактировать предыдущее сообщение: {edit_error}", exc_info=True)
-                    # Если не удалось найти/отредактировать, отправляем новое сообщение
-                    sent_message = await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                        reply_markup=reply_markup
-                    )
-                    base_message_id = sent_message.message_id
-                    self.state_manager.set_data(user_id, "base_message_id", base_message_id)
-                    logger.info(f"Отправлено новое сообщение с запросом типа модели, ID: {base_message_id}")
+            logger.info(f"Обработка названия модели для медиагруппы от пользователя {user_id}: {text}")
             
-            # Устанавливаем состояние выбора типа модели для медиа-группы
-            self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE_FOR_MEDIA_GROUP)
+            # Получаем chat_id
+            chat_id = update.effective_chat.id if update.effective_chat else user_id
             
-            # Пытаемся удалить сообщение пользователя для чистоты чата
-            try:
-                await delete_message(context, chat_id, update.message.message_id)
-                logger.info(f"Удалено сообщение с названием модели от пользователя {user_id}")
-            except Exception as e:
-                logger.warning(f"Не удалось удалить сообщение пользователя {user_id}: {e}")
-                
-            logger.info(f"Запрошен тип модели для медиа-группы у пользователя {user_id}")
-        except Exception as e:
-            logger.error(f"Ошибка при обработке названия модели для медиа-группы: {e}", exc_info=True)
-            try:
-                # Создаем клавиатуру с кнопкой сброса бота
-                keyboard = [
-                    [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
+            # Проверяем, что в названии нет запрещенных символов
+            model_name = self._sanitize_model_name(text)
+            if model_name != text:
+                logger.info(f"Название модели было нормализовано: {text} -> {model_name}")
+            
+            # Сохраняем название модели в состоянии пользователя
+            self.state_manager.update_data(user_id, model_name=model_name)
+            
+            # Получаем данные пользователя
+            user_data = self.state_manager.get_data(user_id)
+            
+            # Проверяем, есть ли у нас message_id для редактирования
+            message_id = user_data.get('message_id')
+            
+            # Создаем клавиатуру с кнопкой отмены
+            keyboard = [
+                [
+                    InlineKeyboardButton("Отмена", callback_data=f"cancel_generation")
                 ]
-                error_markup = InlineKeyboardMarkup(keyboard)
-                
-                await context.bot.send_message(
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Формируем текст сообщения
+            message_text = (
+                f"Название модели: <b>{model_name}</b>\n\n"
+                f"Выбранный тип: <b>{get_model_type_display_name(user_data.get('model_type', 'unknown'))}</b>\n\n"
+                f"Теперь отправьте от 3 до 20 фотографий одной медиагруппой (удерживайте несколько фото при отправке).\n\n"
+                f"<i>* фотографии должны быть хорошего качества и содержать четкое изображение вашего лица с разных ракурсов</i>"
+            )
+            
+            # Пытаемся отредактировать существующее сообщение
+            edit_success = False
+            if message_id:
+                edit_success = await self.edit_message(
+                    context=context,
+                    message_id=message_id,
                     chat_id=chat_id,
-                    text="❌ Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже.",
-                    reply_markup=error_markup
+                    text=message_text,
+                    caption=message_text,
+                    reply_markup=reply_markup
                 )
-                # Сбрасываем состояние пользователя
-                self.state_manager.reset_state(user_id)
-            except Exception as err:
-                logger.error(f"Не удалось отправить сообщение об ошибке: {err}", exc_info=True)
+                if edit_success:
+                    logger.info(f"Успешно отредактировано сообщение для пользователя {user_id}")
+            
+            # Если редактирование не удалось или message_id не найден, отправляем новое сообщение
+            if not edit_success:
+                # Пробуем отправить с фото
+                try:
+                    message = await context.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=WELCOME_IMAGE_URL,
+                        caption=message_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Отправлено новое сообщение с фото для пользователя {user_id}")
+                    
+                    # Сохраняем message_id для будущих редактирований
+                    self.state_manager.update_data(user_id, message_id=message.message_id)
+                    
+                except Exception as photo_err:
+                    logger.error(f"Ошибка при отправке фото: {photo_err}", exc_info=True)
+                    
+                    # Если не получилось с фото, отправляем текстовое сообщение
+                    try:
+                        message = await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=message_text,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                        logger.info(f"Отправлено новое текстовое сообщение для пользователя {user_id}")
+                        
+                        # Сохраняем message_id для будущих редактирований
+                        self.state_manager.update_data(user_id, message_id=message.message_id)
+                        
+                    except Exception as text_send_err:
+                        logger.error(f"Ошибка при отправке текстового сообщения: {text_send_err}", exc_info=True)
+            
+            # Устанавливаем состояние пользователя на UPLOADING_PHOTOS
+            self.state_manager.set_state(user_id, UserState.UPLOADING_PHOTOS)
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обработке названия модели для медиагруппы: {e}", exc_info=True)
+            
+            # Создаем клавиатуру с кнопкой "Начать сначала"
+            keyboard = [
+                [
+                    InlineKeyboardButton("Начать сначала", callback_data=f"main_menu")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Сбрасываем состояние пользователя
+            self.state_manager.reset_state(user_id)
+            
+            # Отправляем сообщение об ошибке
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id if 'chat_id' in locals() else user_id,
+                    text="Произошла ошибка при обработке названия модели. Пожалуйста, начните сначала.",
+                    reply_markup=reply_markup
+                )
+            except Exception as send_err:
+                logger.error(f"Ошибка при отправке сообщения об ошибке: {send_err}", exc_info=True)
+                
+                # Пробуем отправить фото, если предыдущая отправка не удалась
+                try:
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=WELCOME_IMAGE_URL,
+                        caption="Произошла ошибка при обработке названия модели. Пожалуйста, начните сначала.",
+                        reply_markup=reply_markup
+                    )
+                except Exception as photo_err:
+                    logger.error(f"Не удалось отправить фото с ошибкой: {photo_err}", exc_info=True)
     
     async def _handle_unknown_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
         """
@@ -833,3 +813,61 @@ class MessageHandler:
                 )
             except Exception as send_error:
                 logger.error(f"Не удалось отправить сообщение об ошибке: {send_error}", exc_info=True)
+
+    async def edit_message(self, context, message_id, chat_id, text=None, caption=None, reply_markup=None):
+        """
+        Редактирует сообщение, автоматически определяя тип сообщения (текст или с подписью)
+        
+        Args:
+            context (ContextTypes.DEFAULT_TYPE): Контекст бота
+            message_id (int): ID сообщения для редактирования
+            chat_id (int): ID чата
+            text (str, optional): Новый текст сообщения
+            caption (str, optional): Новая подпись сообщения
+            reply_markup (InlineKeyboardMarkup, optional): Новая клавиатура
+        
+        Returns:
+            bool: True если редактирование прошло успешно, False в противном случае
+        """
+        if not message_id or not chat_id:
+            logger.warning("Не указан message_id или chat_id для редактирования сообщения")
+            return False
+        
+        try:
+            # Пробуем отредактировать как подпись (для фото, видео и т.д.)
+            if caption:
+                await context.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup
+                )
+                logger.debug(f"Успешно отредактирована подпись сообщения {message_id}")
+                return True
+            # Пробуем отредактировать как текст
+            elif text:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup
+                )
+                logger.debug(f"Успешно отредактирован текст сообщения {message_id}")
+                return True
+            # Пробуем отредактировать клавиатуру
+            elif reply_markup:
+                await context.bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=reply_markup
+                )
+                logger.debug(f"Успешно отредактирована клавиатура сообщения {message_id}")
+                return True
+            else:
+                logger.warning("Не указаны параметры для редактирования сообщения")
+                return False
+        except Exception as e:
+            logger.warning(f"Ошибка при редактировании сообщения: {e}")
+            return False
