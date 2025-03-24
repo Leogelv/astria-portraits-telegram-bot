@@ -183,6 +183,11 @@ class CallbackHandler:
         """
         logger.info(f"Начинаю обработку команды train из callback для пользователя {user_id}")
         
+        # Получаем chat_id (в callback это всегда будет совпадать с user_id)
+        chat_id = update.effective_chat.id if update.effective_chat else user_id
+        # Сохраняем chat_id для последующего использования
+        self.state_manager.set_data(user_id, "chat_id", chat_id)
+        
         # Создаем клавиатуру с кнопкой отмены
         keyboard = [
             [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
@@ -191,25 +196,54 @@ class CallbackHandler:
         
         # Устанавливаем состояние ввода имени модели
         self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
-        self.state_manager.clear_data(user_id)
+        self.state_manager.clear_data(user_id, preserve_keys=["chat_id"])  # Сохраняем chat_id
         logger.info(f"Установлено состояние ENTERING_MODEL_NAME для пользователя {user_id}")
         
         # Пробуем изменить текущее сообщение
         try:
-            await query.edit_message_caption(
-                caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                reply_markup=reply_markup
-            )
-            logger.info(f"Обновлено сообщение для пользователя {user_id}")
+            # ВАЖНО: Сохраняем ID сообщения для последующего редактирования
+            message_id = query.message.message_id
+            self.state_manager.set_data(user_id, "base_message_id", message_id)
+            logger.info(f"Сохранен base_message_id={message_id} для пользователя {user_id}")
+            
+            # Проверяем, есть ли в сообщении подпись (caption)
+            if query.message.caption is not None:
+                await query.edit_message_caption(
+                    caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Обновлена подпись сообщения для пользователя {user_id}")
+            else:
+                # Если подписи нет, редактируем текст
+                await query.edit_message_text(
+                    text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Обновлен текст сообщения для пользователя {user_id}")
         except Exception as e:
             logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
             # В случае ошибки отправляем новое сообщение
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
-                reply_markup=reply_markup
-            )
-            logger.info(f"Отправлен запрос имени модели пользователю {user_id}")
+            try:
+                sent_message = await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=WELCOME_IMAGE_URL,
+                    caption="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID нового сообщения
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                logger.info(f"Отправлено новое сообщение с фото с ID {sent_message.message_id} пользователю {user_id}")
+            except Exception as photo_err:
+                logger.error(f"Ошибка при отправке сообщения с фото: {photo_err}", exc_info=True)
+                # Если и это не удалось, отправляем текстовое сообщение
+                sent_message = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="📝 Введите имя для вашей модели (например, 'Моя фотосессия'):",
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID нового сообщения
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                logger.info(f"Отправлен запрос имени модели пользователю {user_id}, ID сообщения: {sent_message.message_id}")
     
     async def _handle_cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """

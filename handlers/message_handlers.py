@@ -102,39 +102,27 @@ class MessageHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Получаем ID сообщения для редактирования
+        # Получаем ID сообщения для редактирования (должен быть сохранен ранее)
         base_message_id = self.state_manager.get_data(user_id, "base_message_id")
-        logger.info(f"Получен base_message_id={base_message_id} для пользователя {user_id}")
         
-        edit_success = False
+        success_message = f"✅ Название модели: {text}\n\nТеперь выберите тип модели:"
         
+        # ЗАМЕНЯЕМ СЛОЖНУЮ ЛОГИКУ НА ПРОСТУЮ, как в _handle_prompt_input
         if base_message_id:
+            # Редактируем существующее сообщение
             try:
-                # Попытка редактировать сообщение как caption (для сообщений с фото)
+                # Попытка редактировать сообщение в двух вариантах: как caption и как text
                 try:
+                    # Сначала пробуем как caption (для сообщений с фото)
                     await context.bot.edit_message_caption(
                         chat_id=chat_id,
                         message_id=base_message_id,
-                        caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
+                        caption=success_message,
                         reply_markup=reply_markup
                     )
-                    logger.info(f"Успешно отредактирована подпись сообщения для пользователя {user_id}, message_id={base_message_id}")
-                    edit_success = True
-                except Exception as caption_error:
-                    logger.info(f"Не удалось отредактировать подпись: {caption_error}, пробуем редактировать текст")
+                    logger.info(f"Обновлена подпись сообщения ID {base_message_id} для пользователя {user_id}")
                     
-                    # Попытка редактировать сообщение как текст
-                    await context.bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=base_message_id,
-                        text=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Успешно отредактирован текст сообщения для пользователя {user_id}, message_id={base_message_id}")
-                    edit_success = True
-                
-                # Если успешно отредактировали, устанавливаем состояние и удаляем сообщение пользователя
-                if edit_success:
+                    # Меняем состояние пользователя
                     self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
                     
                     # Удаляем сообщение пользователя для чистоты чата
@@ -144,89 +132,20 @@ class MessageHandler:
                     except Exception as e:
                         logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
                     
-                    # Выходим из функции, т.к. обработка успешна
                     return
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении сообщения с именем модели: {e}", exc_info=True)
-                # Продолжаем выполнение и попробуем найти другое сообщение для редактирования или отправим новое
-        
-        # Если не удалось отредактировать сообщение по ID из хранилища, пробуем найти последнее сообщение бота
-        if not edit_success:
-            try:
-                # Отправляем временное сообщение для получения ID последнего сообщения
-                temp_message = await context.bot.send_message(
+                except Exception as caption_error:
+                    logger.info(f"Не удалось отредактировать caption: {str(caption_error)}, пробуем редактировать текст")
+                
+                # Если не получилось с caption, редактируем как обычный текст
+                await context.bot.edit_message_text(
                     chat_id=chat_id,
-                    text="Обрабатываем ваш запрос..."
-                )
-                
-                # Предполагаем, что предыдущее сообщение (перед временным) - это наше целевое сообщение
-                previous_message_id = temp_message.message_id - 1
-                
-                # Сохраняем найденный ID для будущего использования
-                self.state_manager.set_data(user_id, "base_message_id", previous_message_id)
-                logger.info(f"Нашли предполагаемое предыдущее сообщение с ID: {previous_message_id}")
-                
-                # Удаляем временное сообщение
-                await context.bot.delete_message(chat_id=chat_id, message_id=temp_message.message_id)
-                
-                # Пробуем редактировать найденное сообщение
-                try:
-                    # Сначала пробуем редактировать подпись (для сообщений с фото)
-                    try:
-                        await context.bot.edit_message_caption(
-                            chat_id=chat_id,
-                            message_id=previous_message_id,
-                            caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Успешно отредактирована подпись найденного сообщения {previous_message_id}")
-                        edit_success = True
-                    except Exception as caption_error:
-                        logger.info(f"Не удалось отредактировать подпись найденного сообщения: {caption_error}, пробуем текст")
-                        
-                        # Если не получилось редактировать подпись, пробуем текст
-                        await context.bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=previous_message_id,
-                            text=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
-                            reply_markup=reply_markup
-                        )
-                        logger.info(f"Успешно отредактирован текст найденного сообщения {previous_message_id}")
-                        edit_success = True
-                    
-                    # Если успешно отредактировали, устанавливаем состояние и удаляем сообщение пользователя
-                    if edit_success:
-                        self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
-                        
-                        # Удаляем сообщение пользователя для чистоты чата
-                        try:
-                            await delete_message(context, chat_id, update.message.message_id)
-                            logger.info(f"Удалено текстовое сообщение с именем модели от пользователя {user_id}")
-                        except Exception as e:
-                            logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
-                        
-                        # Выходим из функции, т.к. обработка успешна
-                        return
-                except Exception as edit_error:
-                    logger.error(f"Не удалось отредактировать найденное сообщение: {edit_error}", exc_info=True)
-            except Exception as find_error:
-                logger.error(f"Ошибка при поиске сообщения для редактирования: {find_error}", exc_info=True)
-        
-        # Если все попытки редактирования неудачны, отправляем новое сообщение
-        if not edit_success:
-            logger.warning(f"Не удалось отредактировать существующие сообщения, отправляем новое для пользователя {user_id}")
-            try:
-                sent_message = await context.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=WELCOME_IMAGE_URL,
-                    caption=f"✅ Название модели: {text}\n\nТеперь выберите тип модели:",
+                    message_id=base_message_id,
+                    text=success_message,
                     reply_markup=reply_markup
                 )
-                # Сохраняем ID нового сообщения в качестве основного
-                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
-                logger.info(f"Отправлено новое сообщение с ID {sent_message.message_id} в чат {chat_id}")
+                logger.info(f"Обновлено сообщение ID {base_message_id} для пользователя {user_id}")
                 
-                # Устанавливаем состояние выбора типа модели
+                # Меняем состояние пользователя
                 self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
                 
                 # Удаляем сообщение пользователя для чистоты чата
@@ -235,24 +154,52 @@ class MessageHandler:
                     logger.info(f"Удалено текстовое сообщение с именем модели от пользователя {user_id}")
                 except Exception as e:
                     logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
-            except Exception as send_error:
-                logger.error(f"Ошибка при отправке нового сообщения: {send_error}", exc_info=True)
-                # В случае полного провала отправляем текстовое сообщение с кнопкой сброса
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения с именем модели: {e}", exc_info=True)
+                
+                # В случае полного провала отправляем новое сообщение с фото
+                sent_message = await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=WELCOME_IMAGE_URL,
+                    caption=success_message,
+                    reply_markup=reply_markup
+                )
+                # Сохраняем ID нового сообщения
+                self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+                logger.info(f"Отправлено новое сообщение с фото, ID: {sent_message.message_id}")
+                
+                # Меняем состояние пользователя
+                self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
+                
+                # Удаляем сообщение пользователя для чистоты чата
                 try:
-                    keyboard = [
-                        [InlineKeyboardButton("🔄 Начать сначала", callback_data="cmd_start")]
-                    ]
-                    error_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text="❌ Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже.",
-                        reply_markup=error_markup
-                    )
-                    # Сбрасываем состояние пользователя
-                    self.state_manager.reset_state(user_id)
-                except Exception as err:
-                    logger.error(f"Не удалось отправить даже сообщение об ошибке: {err}", exc_info=True)
+                    await delete_message(context, chat_id, update.message.message_id)
+                    logger.info(f"Удалено текстовое сообщение с именем модели от пользователя {user_id}")
+                except Exception as del_e:
+                    logger.error(f"Не удалось удалить сообщение пользователя: {del_e}", exc_info=True)
+        else:
+            # Если ID сообщения не найден, отправляем новое
+            logger.warning(f"ID базового сообщения не найден для пользователя {user_id}, отправляем новое сообщение")
+            
+            sent_message = await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=WELCOME_IMAGE_URL,
+                caption=success_message,
+                reply_markup=reply_markup
+            )
+            # Сохраняем ID нового сообщения
+            self.state_manager.set_data(user_id, "base_message_id", sent_message.message_id)
+            logger.info(f"Отправлено новое сообщение с ID {sent_message.message_id}")
+            
+            # Меняем состояние пользователя
+            self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
+            
+            # Удаляем сообщение пользователя для чистоты чата
+            try:
+                await delete_message(context, chat_id, update.message.message_id)
+                logger.info(f"Удалено текстовое сообщение с именем модели от пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Не удалось удалить сообщение пользователя: {e}", exc_info=True)
     
     async def _handle_prompt_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, user_id: int) -> None:
         """
