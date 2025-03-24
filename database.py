@@ -238,4 +238,36 @@ class DatabaseManager:
             return None
         except Exception as e:
             logger.error(f"Ошибка при обновлении URLs медиагруппы: {e}")
+            return None
+
+    async def create_test_user(self, telegram_id: int, username: str = "demo_user", credits: int = 500) -> Optional[Dict[str, Any]]:
+        """Создание тестового пользователя с указанными кредитами"""
+        try:
+            user_data = {
+                "telegram_id": telegram_id,
+                "username": username,
+                "first_name": "Demo",
+                "last_name": "User",
+                "credits": credits
+            }
+            
+            # Проверим, существует ли пользователь с таким ID
+            existing_user = await self.get_user(telegram_id)
+            if existing_user:
+                # Если пользователь существует, обновим только credits
+                response = self.supabase.table("telegram_users").update({"credits": credits}).eq("telegram_id", telegram_id).execute()
+                if response.data and len(response.data) > 0:
+                    logger.info(f"Обновлены кредиты для пользователя {telegram_id}: {credits}")
+                    return response.data[0]
+                return None
+            
+            # Создаем нового пользователя
+            response = self.supabase.table("telegram_users").insert(user_data).execute()
+            if response.data and len(response.data) > 0:
+                logger.info(f"Создан тестовый пользователь: {response.data[0]}")
+                return response.data[0]
+            logger.error(f"Ошибка при создании тестового пользователя: {response}")
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка при создании тестового пользователя: {e}")
             return None 
