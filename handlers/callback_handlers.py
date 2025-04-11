@@ -3,9 +3,11 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from loguru import logger
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 import aiohttp
 import json
+import logging
+import asyncio
 
 from state_manager import UserState
 from utils.message_utils import delete_message, create_main_keyboard
@@ -320,13 +322,24 @@ class CallbackHandler:
         self.state_manager.set_data(user_id, "chat_id", chat_id)
         
         # Получаем модели пользователя через API запрос
+        models = []
         try:
             data = {"telegram_id": user_id}
             async with aiohttp.ClientSession() as session:
                 async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
                     if response.status == 200:
-                        models = await response.json()
-                        logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
+                        try:
+                            response_text = await response.text()
+                            # Проверяем, является ли ответ строкой JSON
+                            if response_text.strip().startswith('[') and response_text.strip().endswith(']'):
+                                models = json.loads(response_text)
+                            else:
+                                logger.error(f"Ответ API не является JSON массивом: {response_text}")
+                                models = []
+                            logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
+                        except json.JSONDecodeError as json_err:
+                            logger.error(f"Ошибка декодирования JSON: {json_err}. Ответ: {response_text}")
+                            models = []
                     else:
                         logger.error(f"Ошибка при получении моделей через API: {response.status}")
                         models = []
@@ -367,18 +380,64 @@ class CallbackHandler:
             logger.info(f"Пользователь {user_id} не имеет моделей")
             return
         
+        # Убедимся, что models - это список словарей
+        if not isinstance(models, list):
+            logger.error(f"Получены модели неверного формата: {type(models).__name__}")
+            models = []
+            message_text = "Произошла ошибка при получении моделей. Пожалуйста, попробуйте позже."
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 В начало", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await self.edit_message(
+                context=context,
+                query=query,
+                chat_id=chat_id,
+                caption=message_text,
+                text=message_text,
+                reply_markup=reply_markup
+            )
+            return
+        
         # Выбираем последнюю созданную модель
         # Сортируем модели по дате создания (если поле существует) в обратном порядке
-        if all("created_at" in model for model in models):
-            sorted_models = sorted(models, key=lambda x: x.get("created_at", ""), reverse=True)
-        else:
-            # Если у моделей нет поля created_at, просто берем первую в списке
-            sorted_models = models
-        
-        # Берем самую последнюю модель
-        latest_model = sorted_models[0]
-        model_id = latest_model.get("model_id", "unknown")
-        model_name = latest_model.get("name", f"Модель #{model_id}")
+        try:
+            if all(isinstance(model, dict) and "created_at" in model for model in models):
+                sorted_models = sorted(models, key=lambda x: x.get("created_at", ""), reverse=True)
+            else:
+                # Если у моделей нет поля created_at, просто используем список как есть
+                sorted_models = models
+            
+            # Берем самую последнюю модель
+            latest_model = sorted_models[0]
+            
+            # Проверяем, что latest_model - это словарь
+            if not isinstance(latest_model, dict):
+                logger.error(f"Последняя модель неверного формата: {type(latest_model).__name__}")
+                raise ValueError("Model is not a dictionary")
+                
+            model_id = latest_model.get("model_id", "unknown")
+            model_name = latest_model.get("name", f"Модель #{model_id}")
+        except (IndexError, ValueError, TypeError) as e:
+            logger.error(f"Ошибка при обработке моделей: {e}", exc_info=True)
+            message_text = "Произошла ошибка при выборе модели. Пожалуйста, попробуйте позже."
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 В начало", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await self.edit_message(
+                context=context,
+                query=query,
+                chat_id=chat_id,
+                caption=message_text,
+                text=message_text,
+                reply_markup=reply_markup
+            )
+            return
         
         # Сохраняем ID модели в состоянии пользователя
         self.state_manager.set_data(user_id, "model_id", model_id)
