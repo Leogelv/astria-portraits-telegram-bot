@@ -123,18 +123,41 @@ class AstriaBot:
         # Сбрасываем состояние пользователя
         self.state_manager.reset_state(user_id)
         
+        # Проверяем, есть ли у пользователя модели
+        has_models = False
+        try:
+            data = {"telegram_id": user_id}
+            async with aiohttp.ClientSession() as session:
+                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
+                    if response.status == 200:
+                        models = await response.json()
+                        has_models = len(models) > 0
+                        logger.info(f"Проверка моделей для пользователя {user_id}: {len(models)} моделей")
+                    else:
+                        logger.error(f"Ошибка при получении моделей через API: {response.status}")
+        except Exception as e:
+            logger.error(f"Исключение при проверке моделей через API: {e}", exc_info=True)
+        
         # Создаем клавиатуру с кнопками для команд
-        keyboard = [
-            [
-                InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")
-            ],
-            [
-                InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
-            ],
-            [
-                InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")
-            ]
-        ]
+        keyboard = []
+        
+        # Кнопка создания новой модели показывается, только если у пользователя нет моделей
+        if not has_models:
+            keyboard.append([
+                InlineKeyboardButton("🖼️ Начать с нуля", callback_data="cmd_train")
+            ])
+        
+        # Кнопка генерации всегда видна
+        keyboard.append([
+            InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")
+        ])
+        
+        # Если есть модели, добавляем кнопку создания видео
+        if has_models:
+            keyboard.append([
+                InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")
+            ])
+            
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # URL для фото приветствия - используем константу из config.py

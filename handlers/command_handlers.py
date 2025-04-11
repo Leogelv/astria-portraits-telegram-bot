@@ -84,7 +84,7 @@ class CommandHandlers:
         # Регистрируем пользователя
         await self.register_user(user_id, username, first_name, last_name)
         
-        # Проверяем, есть ли у пользователя модели (для кнопки создания видео)
+        # Проверяем, есть ли у пользователя модели (для формирования кнопок)
         has_models = False
         try:
             data = {"telegram_id": user_id}
@@ -98,11 +98,14 @@ class CommandHandlers:
             logger.error(f"Исключение при проверке моделей через API: {e}", exc_info=True)
         
         # Создаем основную клавиатуру
-        keyboard = [
-            [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
-            [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
-            [InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")]
-        ]
+        keyboard = []
+        
+        # Кнопка создания новой модели показывается, только если у пользователя нет моделей
+        if not has_models:
+            keyboard.append([InlineKeyboardButton("🖼️ Начать тут", callback_data="cmd_train")])
+        
+        # Кнопка генерации всегда видна
+        keyboard.append([InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")])
         
         # Добавляем кнопку создания видео, если у пользователя есть модели
         if has_models:

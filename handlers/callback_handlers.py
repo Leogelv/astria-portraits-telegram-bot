@@ -305,7 +305,7 @@ class CallbackHandler:
     
     async def _handle_cmd_generate(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """
-        Обработка команды generate из callback
+        Обработка команды generate из callback - пропускаем выбор модели и сразу переходим к вводу промпта
         
         Args:
             update (Update): Объект обновления Telegram
@@ -313,7 +313,7 @@ class CallbackHandler:
             query: Объект callback_query
             user_id (int): ID пользователя
         """
-        logger.info(f"Начинаю обработку команды generate из callback для пользователя {user_id}")
+        logger.info(f"Пользователь {user_id} запрашивает генерацию изображений")
         
         # Получаем chat_id
         chat_id = update.effective_chat.id if update.effective_chat else user_id
@@ -335,15 +335,22 @@ class CallbackHandler:
             models = []
         
         if not models:
-            # Редактируем текущее сообщение
-            message_text = "У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
+            # Если у пользователя нет моделей, предлагаем сначала создать модель
+            message_text = "У вас пока нет обученных моделей. Сначала создайте свою первую модель."
+            
+            keyboard = [
+                [InlineKeyboardButton("🖼️ Создать модель", callback_data="cmd_train")],
+                [InlineKeyboardButton("🔄 В начало", callback_data="cmd_start")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
             edit_success = await self.edit_message(
                 context=context,
                 query=query,
                 chat_id=chat_id,
                 caption=message_text,
-                text=message_text
+                text=message_text,
+                reply_markup=reply_markup
             )
             
             if edit_success:
@@ -352,33 +359,47 @@ class CallbackHandler:
                 # Если не удалось отредактировать, отправляем новое сообщение
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=message_text
+                    text=message_text,
+                    reply_markup=reply_markup
                 )
                 logger.info(f"Отправлено новое сообщение для пользователя {user_id} - нет моделей")
             
             logger.info(f"Пользователь {user_id} не имеет моделей")
             return
         
-        # Создаем клавиатуру с моделями
-        keyboard = []
-        for model in models:
-            # Получаем данные модели из API ответа
-            model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
-            model_id = model.get("model_id", "unknown")
-            
-            keyboard.append([
-                InlineKeyboardButton(model_name, callback_data=f"model_{model_id}")
-            ])
+        # Выбираем последнюю созданную модель
+        # Сортируем модели по дате создания (если поле существует) в обратном порядке
+        if all("created_at" in model for model in models):
+            sorted_models = sorted(models, key=lambda x: x.get("created_at", ""), reverse=True)
+        else:
+            # Если у моделей нет поля created_at, просто берем первую в списке
+            sorted_models = models
         
+        # Берем самую последнюю модель
+        latest_model = sorted_models[0]
+        model_id = latest_model.get("model_id", "unknown")
+        model_name = latest_model.get("name", f"Модель #{model_id}")
+        
+        # Сохраняем ID модели в состоянии пользователя
+        self.state_manager.set_data(user_id, "model_id", model_id)
+        self.state_manager.set_data(user_id, "model_name", model_name)
+        
+        # Устанавливаем состояние пользователя на ввод промпта
+        self.state_manager.set_state(user_id, UserState.ENTERING_PROMPT)
+        
+        # Создаем клавиатуру с кнопкой отмены
+        keyboard = [
+            [InlineKeyboardButton("❌ Отменить генерацию", callback_data="cancel_generation")]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Устанавливаем состояние выбора модели
-        self.state_manager.set_state(user_id, UserState.SELECTING_MODEL)
-        logger.info(f"Установлено состояние SELECTING_MODEL для пользователя {user_id}")
+        # Сообщение для ввода промпта
+        message_text = (
+            f"Выбрана модель: <b>{model_name}</b>\n\n"
+            f"{ENTER_PROMPT_MESSAGE}"
+        )
         
-        message_text = "Выберите модель для генерации изображений:"
-        
-        # Редактируем сообщение с помощью нашего метода
+        # Редактируем текущее сообщение
         edit_success = await self.edit_message(
             context=context,
             query=query,
@@ -389,26 +410,35 @@ class CallbackHandler:
         )
         
         if edit_success:
-            logger.info(f"Обновлено сообщение для выбора модели пользователем {user_id}")
+            logger.info(f"Обновлено сообщение для ввода промпта пользователем {user_id}")
+            # Сохраняем ID сообщения для последующего редактирования
+            self.state_manager.set_data(user_id, "base_message_id", query.message.message_id)
         else:
-            # Если не получилось изменить текущее сообщение, отправляем новое
+            # Если не удалось редактировать, отправляем новое сообщение
             try:
-                await context.bot.send_photo(
+                message = await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=WELCOME_IMAGE_URL,
                     caption=message_text,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=reply_markup
                 )
-                logger.info(f"Отправлено новое сообщение с выбором модели пользователю {user_id}")
+                # Сохраняем ID сообщения для последующего редактирования
+                self.state_manager.set_data(user_id, "base_message_id", message.message_id)
+                logger.info(f"Отправлено новое сообщение для ввода промпта пользователю {user_id}")
             except Exception as e:
-                logger.error(f"Ошибка при отправке фото с выбором модели: {e}", exc_info=True)
+                logger.error(f"Ошибка при отправке фото для ввода промпта: {e}", exc_info=True)
+                
                 # В крайнем случае отправляем текстовое сообщение
-                await context.bot.send_message(
+                message = await context.bot.send_message(
                     chat_id=chat_id,
                     text=message_text,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=reply_markup
                 )
-                logger.info(f"Отправлено текстовое сообщение с выбором модели пользователю {user_id}")
+                # Сохраняем ID сообщения
+                self.state_manager.set_data(user_id, "base_message_id", message.message_id)
+                logger.info(f"Отправлено текстовое сообщение для ввода промпта пользователю {user_id}")
     
     async def _handle_cmd_credits(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """
