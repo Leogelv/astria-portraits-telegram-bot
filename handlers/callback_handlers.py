@@ -1146,6 +1146,13 @@ class CallbackHandler:
         if edit_success:
             logger.info(f"Обновлено сообщение с инструкциями по загрузке фото для пользователя {user_id}")
         else:
+            # Если редактирование не удалось, сначала удаляем старое сообщение
+            try:
+                await delete_message(context, chat_id, query.message.message_id)
+                logger.info(f"Удалено старое сообщение {query.message.message_id}, так как редактирование не удалось.")
+            except Exception as del_err:
+                logger.error(f"Не удалось удалить старое сообщение {query.message.message_id}: {del_err}", exc_info=True)
+            
             # В случае ошибки отправляем новое сообщение
             try:
                 sent_message = await context.bot.send_photo(
