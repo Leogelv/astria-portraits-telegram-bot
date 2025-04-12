@@ -13,6 +13,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+import json
 
 from config import (
     TELEGRAM_BOT_TOKEN,
@@ -127,14 +128,33 @@ class AstriaBot:
         has_models = False
         try:
             data = {"telegram_id": user_id}
+            api_url = 'https://n8n2.supashkola.ru/webhook/my_models'
+            logger.info(f"Отправляю API запрос на проверку моделей: URL={api_url}, данные={data}")
+            
             async with aiohttp.ClientSession() as session:
-                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
-                    if response.status == 200:
-                        models = await response.json()
-                        has_models = len(models) > 0
-                        logger.info(f"Проверка моделей для пользователя {user_id}: {len(models)} моделей")
+                async with session.post(api_url, json=data) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+                    response_headers = dict(response.headers)
+                    
+                    logger.info(f"Получен ответ API: статус={response_status}, заголовки={response_headers}")
+                    logger.info(f"Тело ответа API: {response_text}")
+                    
+                    if response_status == 200:
+                        try:
+                            # Проверяем формат ответа
+                            if response_text.strip().startswith('['):
+                                models = json.loads(response_text)
+                                has_models = len(models) > 0
+                                logger.info(f"Проверка моделей для пользователя {user_id}: найдено {len(models)} моделей")
+                            else:
+                                logger.warning(f"Ответ API не является массивом: {response_text}")
+                                has_models = False
+                        except json.JSONDecodeError as json_err:
+                            logger.error(f"Ошибка декодирования JSON при проверке моделей: {json_err}. Ответ: {response_text}")
+                            has_models = False
                     else:
-                        logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                        logger.error(f"Ошибка при получении моделей через API: статус={response_status}, ответ={response_text}")
         except Exception as e:
             logger.error(f"Исключение при проверке моделей через API: {e}", exc_info=True)
         

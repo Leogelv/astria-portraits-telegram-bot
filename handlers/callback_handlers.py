@@ -325,23 +325,32 @@ class CallbackHandler:
         models = []
         try:
             data = {"telegram_id": user_id}
+            api_url = 'https://n8n2.supashkola.ru/webhook/my_models'
+            logger.info(f"Отправляю API запрос на получение моделей: URL={api_url}, данные={data}")
+            
             async with aiohttp.ClientSession() as session:
-                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
-                    if response.status == 200:
+                async with session.post(api_url, json=data) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+                    response_headers = dict(response.headers)
+                    
+                    logger.info(f"Получен ответ API: статус={response_status}, заголовки={response_headers}")
+                    logger.info(f"Тело ответа API: {response_text}")
+                    
+                    if response_status == 200:
                         try:
-                            response_text = await response.text()
                             # Проверяем, является ли ответ строкой JSON
                             if response_text.strip().startswith('[') and response_text.strip().endswith(']'):
                                 models = json.loads(response_text)
+                                logger.info(f"Успешно получены модели пользователя {user_id} через API: {len(models)} моделей")
                             else:
                                 logger.error(f"Ответ API не является JSON массивом: {response_text}")
                                 models = []
-                            logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
                         except json.JSONDecodeError as json_err:
                             logger.error(f"Ошибка декодирования JSON: {json_err}. Ответ: {response_text}")
                             models = []
                     else:
-                        logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                        logger.error(f"Ошибка при получении моделей через API: статус={response_status}, ответ={response_text}")
                         models = []
         except Exception as e:
             logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
@@ -1342,13 +1351,23 @@ class CallbackHandler:
         # Получаем модели пользователя через API запрос
         try:
             data = {"telegram_id": user_id}
+            api_url = 'https://n8n2.supashkola.ru/webhook/my_models'
+            logger.info(f"Отправляю API запрос на получение моделей: URL={api_url}, данные={data}")
+            
             async with aiohttp.ClientSession() as session:
-                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
-                    if response.status == 200:
+                async with session.post(api_url, json=data) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+                    response_headers = dict(response.headers)
+                    
+                    logger.info(f"Получен ответ API: статус={response_status}, заголовки={response_headers}")
+                    logger.info(f"Тело ответа API: {response_text}")
+                    
+                    if response_status == 200:
                         models = await response.json()
                         logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
                     else:
-                        logger.error(f"Ошибка при получении моделей через API: {response.status}")
+                        logger.error(f"Ошибка при получении моделей через API: статус={response_status}, ответ={response_text}")
                         models = []
         except Exception as e:
             logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
