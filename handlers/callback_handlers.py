@@ -116,8 +116,11 @@ class CallbackHandler:
         if command == "start":
             # Сбрасываем состояние пользователя
             self.state_manager.reset_state(user_id)
+            # Очищаем кеш моделей
+            self.state_manager.clear_data(user_id, "user_models")
+            logger.info(f"Кеш моделей очищен для пользователя {user_id} при старте.")
             
-            # Используем готовую функцию для создания основной клавиатуры
+            # Используем функцию для создания основной клавиатуры
             reply_markup = create_main_keyboard()
             
             # Обновляем сообщение
@@ -332,40 +335,8 @@ class CallbackHandler:
         chat_id = update.effective_chat.id if update.effective_chat else user_id
         self.state_manager.set_data(user_id, "chat_id", chat_id)
         
-        # Получаем модели пользователя через API запрос
-        models = []
-        try:
-            data = {"telegram_id": user_id}
-            api_url = 'https://n8n2.supashkola.ru/webhook/my_models'
-            logger.info(f"Отправляю API запрос на получение моделей: URL={api_url}, данные={data}")
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=data) as response:
-                    response_status = response.status
-                    response_text = await response.text()
-                    response_headers = dict(response.headers)
-                    
-                    logger.info(f"Получен ответ API: статус={response_status}, заголовки={response_headers}")
-                    logger.info(f"Тело ответа API: {response_text}")
-                    
-                    if response_status == 200:
-                        try:
-                            # Проверяем, является ли ответ строкой JSON
-                            if response_text.strip().startswith('[') and response_text.strip().endswith(']'):
-                                models = json.loads(response_text)
-                                logger.info(f"Успешно получены модели пользователя {user_id} через API: {len(models)} моделей")
-                            else:
-                                logger.error(f"Ответ API не является JSON массивом: {response_text}")
-                                models = []
-                        except json.JSONDecodeError as json_err:
-                            logger.error(f"Ошибка декодирования JSON: {json_err}. Ответ: {response_text}")
-                            models = []
-                    else:
-                        logger.error(f"Ошибка при получении моделей через API: статус={response_status}, ответ={response_text}")
-                        models = []
-        except Exception as e:
-            logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
-            models = []
+        # Получаем модели пользователя через кеширующий метод
+        models = await self.get_user_models_cached(user_id)
         
         if not models:
             # Если у пользователя нет моделей, предлагаем сначала создать модель
@@ -397,7 +368,7 @@ class CallbackHandler:
                 )
                 logger.info(f"Отправлено новое сообщение для пользователя {user_id} - нет моделей")
             
-            logger.info(f"Пользователь {user_id} не имеет моделей")
+            logger.info(f"Пользователь {user_id} не имеет моделей (проверено через кеш)")
             return
         
         # Убедимся, что models - это список словарей
@@ -667,20 +638,8 @@ class CallbackHandler:
         """
         logger.info(f"Начинаю обработку команды models из callback для пользователя {user_id}")
         
-        # Получаем модели пользователя через API запрос
-        try:
-            data = {"telegram_id": user_id}
-            async with aiohttp.ClientSession() as session:
-                async with session.post('https://n8n2.supashkola.ru/webhook/my_models', json=data) as response:
-                    if response.status == 200:
-                        models = await response.json()
-                        logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
-                    else:
-                        logger.error(f"Ошибка при получении моделей через API: {response.status}")
-                        models = []
-        except Exception as e:
-            logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
-            models = []
+        # Получаем модели пользователя через кеширующий метод
+        models = await self.get_user_models_cached(user_id)
         
         if not models:
             try:
@@ -693,7 +652,7 @@ class CallbackHandler:
                     chat_id=user_id,
                     text="У вас пока нет обученных моделей. Используйте команду /train, чтобы обучить новую модель."
                 )
-            logger.info(f"Пользователь {user_id} не имеет моделей")
+            logger.info(f"Пользователь {user_id} не имеет моделей (проверено через кеш)")
             return
         
         # Формируем сообщение со списком моделей
@@ -1932,3 +1891,51 @@ class CallbackHandler:
             logger.info(f"Уведомление администратору отправлено")
         except Exception as e:
             logger.error(f"Ошибка при отправке уведомления администратору: {e}", exc_info=True)
+
+    async def get_user_models_cached(self, user_id: int) -> List[Dict[str, Any]]:
+        """
+        Получает список моделей пользователя, используя кеш в state_manager.
+
+        Args:
+            user_id (int): ID пользователя Telegram.
+
+        Returns:
+            List[Dict[str, Any]]: Список словарей с данными моделей или пустой список.
+        """
+        # 1. Проверяем кеш
+        cached_models = self.state_manager.get_data(user_id, "user_models")
+        if cached_models is not None:
+            logger.info(f"Используем кешированные модели для пользователя {user_id}")
+            return cached_models
+
+        # 2. Если в кеше нет, делаем API запрос
+        logger.info(f"Кеш моделей пуст для {user_id}, запрашиваем API.")
+        models = []
+        try:
+            data = {"telegram_id": user_id}
+            api_url = 'https://n8n2.supashkola.ru/webhook/my_models'
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json=data) as response:
+                    if response.status == 200:
+                        response_text = await response.text()
+                        try:
+                            if response_text.strip().startswith('[') and response_text.strip().endswith(']'):
+                                models = json.loads(response_text)
+                                logger.info(f"Успешно получены модели пользователя {user_id} через API: {len(models)} моделей")
+                                # 3. Сохраняем в кеш
+                                self.state_manager.set_data(user_id, "user_models", models)
+                            else:
+                                logger.error(f"Ответ API my_models не является JSON массивом: {response_text}")
+                                models = [] # Возвращаем пустой список при ошибке формата
+                        except json.JSONDecodeError as json_err:
+                            logger.error(f"Ошибка декодирования JSON my_models: {json_err}. Ответ: {response_text}")
+                            models = [] # Возвращаем пустой список при ошибке декодирования
+                    else:
+                        response_text = await response.text()
+                        logger.error(f"Ошибка при получении моделей через API my_models: статус={response.status}, ответ={response_text}")
+                        models = [] # Возвращаем пустой список при ошибке API
+        except Exception as e:
+            logger.error(f"Исключение при получении моделей через API my_models: {e}", exc_info=True)
+            models = [] # Возвращаем пустой список при общем исключении
+
+        return models
