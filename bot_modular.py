@@ -1,3 +1,7 @@
+"""
+Модульная версия телеграм-бота для Astria AI Portraits.
+Исправленная версия с корректным синтаксисом.
+"""
 import os
 import asyncio
 from typing import Dict, List, Optional, Any, Union
