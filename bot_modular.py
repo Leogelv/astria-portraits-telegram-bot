@@ -75,7 +75,7 @@ class AstriaBot:
         # Теперь можем безопасно передать media_groups в callback_handler
         self.callback_handler = CallbackHandler(self.state_manager, self.db, self.api, self.media_groups)
         
-        # Инициализируем application как None, позже заполним в run()
+        # Инициализируем application и notification_service как None
         self.application = None
         self.notification_service = None
 
@@ -168,7 +168,7 @@ class AstriaBot:
         # Кнопка создания новой модели показывается, только если у пользователя нет моделей
         if not has_models:
             keyboard.append([
-                InlineKeyboardButton("🖼️ Начать с нуля", callback_data="cmd_train")
+                InlineKeyboardButton("🖼️ Начни с нуля", callback_data="cmd_train")
             ])
         
         # Кнопка генерации всегда видна
@@ -231,14 +231,17 @@ class AstriaBot:
 
     def run(self) -> None:
         """Запуск бота"""
-        # Создаем приложение
+        logger.info("Запуск бота...")
+        
+        # Создаем объект Application
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         
         # Сохраняем ссылку на приложение
         self.application = application
         
-        # Инициализируем сервис уведомлений
-        self.notification_service = NotificationService(application, self.db)
+        # Инициализируем сервис уведомлений ПОСЛЕ создания application и state_manager
+        self.notification_service = NotificationService(self.application, self.state_manager, self.db)
+        logger.info("NotificationService инициализирован с application и state_manager")
         
         # Регистрируем обработчики команд
         application.add_handler(CommandHandler("start", self.start_command))

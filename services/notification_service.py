@@ -3,23 +3,26 @@ import aiohttp
 from loguru import logger
 from telegram.ext import Application
 from utils.logging_utils import LogEventType
+from state_manager import StateManager
 
 class NotificationService:
     """Сервис для обработки уведомлений и вебхуков"""
     
-    def __init__(self, application: Application, db_manager=None, supa_logger=None):
+    def __init__(self, application: Application, state_manager: StateManager, db_manager=None, supa_logger=None):
         """
         Инициализация сервиса уведомлений
         
         Args:
             application (Application): Приложение Telegram бота
+            state_manager (StateManager): Менеджер состояний
             db_manager: Менеджер базы данных
             supa_logger: Логгер Supabase
         """
         self.application = application
+        self.state_manager = state_manager
         self.db_manager = db_manager
         self.supa_logger = supa_logger
-        logger.info("Инициализирован NotificationService")
+        logger.info("Инициализирован NotificationService с StateManager")
     
     async def handle_webhook_update(self, update_data: Dict[str, Any]) -> None:
         """
@@ -97,8 +100,15 @@ class NotificationService:
         
         # Отправляем уведомление пользователю
         try:
-            if status == "completed":
+            # Проверяем статус: может быть 'completed' или 'ready'
+            if status in ["completed", "ready"]:
                 message = f"✅ Ваша модель успешно обучена и готова к использованию!\n\nID модели: {model_id}\n\nТеперь вы можете использовать команду /generate для создания изображений."
+                # Очищаем кеш моделей для этого пользователя
+                if self.state_manager:
+                    self.state_manager.clear_data(telegram_id, "user_models")
+                    logger.info(f"Кеш моделей очищен для пользователя {telegram_id} после успешного обучения.")
+                else:
+                    logger.warning("StateManager не доступен в NotificationService, кеш моделей не очищен.")
             else:
                 error_message = update_data.get("error", "Неизвестная ошибка")
                 message = f"❌ К сожалению, при обучении модели произошла ошибка:\n\n{error_message}\n\nПожалуйста, попробуйте снова с другими фотографиями."
