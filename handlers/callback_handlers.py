@@ -867,15 +867,20 @@ class CallbackHandler:
             self.state_manager.reset_state(user_id)
             return
         
+        # Получаем ID центрального сообщения для передачи в N8N
+        central_message_id = query.message.message_id
+        logger.info(f"Центральное сообщение для передачи в N8N: {central_message_id}")
+        
         # Создаем данные для запроса
         data = {
             "model_id": model_id,
             "prompt": prompt,
             "telegram_id": user_id,
-            "num_images": 4  # Количество изображений для генерации
+            "num_images": 4,  # Количество изображений для генерации
+            "message_id": central_message_id # Добавляем ID сообщения
         }
         
-        logger.info(f"Данные для генерации: model_id={model_id}, prompt='{prompt}', telegram_id={user_id}")
+        logger.info(f"Данные для генерации: {data}")
         
         # Редактируем текущее сообщение, показывая что запрос обрабатывается
         try:
