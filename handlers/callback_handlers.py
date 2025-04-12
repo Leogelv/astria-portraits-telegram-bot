@@ -838,7 +838,8 @@ class CallbackHandler:
         # Получаем данные из состояния пользователя
         model_id = self.state_manager.get_data(user_id, "model_id")
         prompt = self.state_manager.get_data(user_id, "prompt")
-        model_name = self.state_manager.get_data(user_id, "model_name", "Неизвестная модель")
+        # Получаем имя модели, если его нет - ставим значение по умолчанию
+        model_name = self.state_manager.get_data(user_id, "model_name") or "Неизвестная модель"
         
         if not model_id or not prompt:
             error_message = f"Не удалось получить model_id или prompt для пользователя {user_id}"

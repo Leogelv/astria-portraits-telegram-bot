@@ -239,7 +239,8 @@ class MessageHandler:
         
         # Получаем ID модели и имя модели
         model_id = self.state_manager.get_data(user_id, "model_id")
-        model_name = self.state_manager.get_data(user_id, "model_name", "Неизвестная модель")
+        # Получаем имя модели, если его нет - ставим значение по умолчанию
+        model_name = self.state_manager.get_data(user_id, "model_name") or "Неизвестная модель"
         
         # Создаем клавиатуру с кнопками для запуска генерации
         keyboard = [
