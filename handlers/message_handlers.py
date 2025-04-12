@@ -678,7 +678,7 @@ class MessageHandler:
             # Пользователь не находится в состоянии загрузки фото, отправляем сообщение с инструкцией
             keyboard = [
                 [InlineKeyboardButton("🏞️ Обучить новую модель", callback_data="train_new_model")],
-                [InlineKeyboardButton("🖼️ Сгенерировать изображения", callback_data="generate_images")]
+                [InlineKeyboardButton("🖼️ Сгенерировать фотки", callback_data="generate_images")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             

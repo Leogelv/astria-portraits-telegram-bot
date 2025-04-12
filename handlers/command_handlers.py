@@ -394,8 +394,8 @@ class CommandHandlers:
         
         # Создаем основную клавиатуру
         keyboard = [
-            [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
-            [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
+            [InlineKeyboardButton("🖼️ Начать заново", callback_data="cmd_train")],
+            [InlineKeyboardButton("🎨 Сгенерировать фотку", callback_data="cmd_generate")],
         ]
         
         # Добавляем кнопку создания видео, если у пользователя есть модели
