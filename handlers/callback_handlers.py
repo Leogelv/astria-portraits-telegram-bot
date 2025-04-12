@@ -210,6 +210,11 @@ class CallbackHandler:
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # Устанавливаем состояние ввода имени модели
+        self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
+        self.state_manager.clear_data(user_id, preserve_keys=["chat_id"]) # Сохраняем chat_id при очистке данных
+        logger.info(f"Установлено состояние ENTERING_MODEL_NAME для пользователя {user_id} через callback cmd_train")
+        
         # Формируем текст сообщения
         message_text = (
             "Вы начали процесс обучения новой модели.\n\n"
