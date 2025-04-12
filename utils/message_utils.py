@@ -27,19 +27,29 @@ def create_reply_markup(buttons: List[List[Dict[str, str]]]) -> InlineKeyboardMa
     
     return InlineKeyboardMarkup(keyboard)
 
-def create_main_keyboard() -> InlineKeyboardMarkup:
+def create_main_keyboard(user_has_models: bool = True) -> InlineKeyboardMarkup:
     """
-    Создает основную клавиатуру с кнопками для главного меню бота.
-    Каждая кнопка расположена на отдельной строке.
+    Создает основную клавиатуру с кнопками для главного меню.
     
+    Args:
+        user_has_models (bool): Есть ли у пользователя модели
+        
     Returns:
-        InlineKeyboardMarkup: Клавиатура с основными кнопками
+        InlineKeyboardMarkup: Клавиатура с кнопками
     """
-    keyboard = [
-        [InlineKeyboardButton("🖼️ Обучить модель", callback_data="cmd_train")],
-        [InlineKeyboardButton("🎨 Сгенерировать", callback_data="cmd_generate")],
-        [InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")]
-    ]
+    keyboard = []
+    
+    # Кнопка "Начни с нуля" всегда отображается
+    keyboard.append([InlineKeyboardButton("🚀 Начни с нуля", callback_data="cmd_train")])
+    
+    # Кнопки для генерации и создания видео отображаются только если есть модели
+    if user_has_models:
+        keyboard.append([InlineKeyboardButton("🖼️ Создать изображение", callback_data="cmd_generate")])
+        keyboard.append([InlineKeyboardButton("🎬 Создать видео", callback_data="cmd_video")])
+    
+    # Кнопка "Мои кредиты" больше не отображается
+    # keyboard.append([InlineKeyboardButton("💰 Мои кредиты", callback_data="cmd_credits")])
+    
     return InlineKeyboardMarkup(keyboard)
 
 async def send_or_edit_message(

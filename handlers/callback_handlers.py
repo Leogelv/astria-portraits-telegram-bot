@@ -11,7 +11,7 @@ import asyncio
 
 from state_manager import UserState
 from utils.message_utils import delete_message, create_main_keyboard
-from config import WELCOME_MESSAGE, WELCOME_IMAGE_URL, INSTRUCTIONS_IMAGE_URL, ENTER_PROMPT_MESSAGE, UPLOAD_PHOTOS_MESSAGE
+from config import WELCOME_MESSAGE, WELCOME_IMAGE_URL, INSTRUCTIONS_IMAGE_URL, ENTER_PROMPT_MESSAGE, UPLOAD_PHOTOS_MESSAGE, ADMIN_TELEGRAM_ID
 
 class CallbackHandler:
     """Обработчик callback-запросов бота"""
@@ -73,6 +73,8 @@ class CallbackHandler:
             await self._handle_start_training(update, context, query, user_id, callback_data)
         elif callback_data == "cancel_training":
             await self._handle_cancel_training(update, context, query, user_id)
+        elif callback_data.startswith("use_username_"):
+            await self._handle_use_username(update, context, query, user_id, callback_data)
         elif callback_data == "cmd_video":
             await self._handle_video_command(update, context, query, user_id)
         elif callback_data.startswith("videomodel_"):
@@ -181,20 +183,17 @@ class CallbackHandler:
         Args:
             update (Update): Объект обновления Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
-            query: Объект callback_query
+            query: Объект callback query
             user_id (int): ID пользователя
         """
-        logger.info(f"Пользователь {user_id} запрашивает создание новой модели")
+        # Получаем ID чата для отправки сообщений
+        chat_id = query.message.chat_id if query.message and query.message.chat else user_id
         
-        # Получаем chat_id
-        chat_id = update.effective_chat.id if update.effective_chat else user_id
+        # Сохраняем данные чата
         self.state_manager.set_data(user_id, "chat_id", chat_id)
         
-        # Сбрасываем состояние пользователя (сохраняем chat_id)
-        self.state_manager.clear_data(user_id, preserve_keys=['chat_id'])
-        
-        # Устанавливаем состояние пользователя на ENTERING_MODEL_NAME
-        self.state_manager.set_state(user_id, UserState.ENTERING_MODEL_NAME)
+        # Получаем имя пользователя, если есть
+        username = update.effective_user.username
         
         # Создаем клавиатуру с кнопкой отмены
         keyboard = [
@@ -202,6 +201,13 @@ class CallbackHandler:
                 InlineKeyboardButton("Отмена", callback_data=f"cancel_generation")
             ]
         ]
+        
+        # Добавляем кнопку с именем пользователя, если оно есть
+        if username:
+            # Удаляем @ из имени пользователя, если он есть
+            clean_username = username.lstrip('@')
+            keyboard.insert(0, [InlineKeyboardButton(f"Использовать '{clean_username}'", callback_data=f"use_username_{clean_username}")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Формируем текст сообщения
@@ -360,9 +366,9 @@ class CallbackHandler:
             # Если у пользователя нет моделей, предлагаем сначала создать модель
             message_text = "У вас пока нет обученных моделей. Сначала создайте свою первую модель."
             
+            # Создаем клавиатуру только с кнопкой "Начать с нуля"
             keyboard = [
-                [InlineKeyboardButton("🖼️ Создать модель", callback_data="cmd_train")],
-                [InlineKeyboardButton("🔄 В начало", callback_data="cmd_start")]
+                [InlineKeyboardButton("🚀 Начать с нуля", callback_data="cmd_train")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -411,24 +417,91 @@ class CallbackHandler:
             return
         
         # Выбираем последнюю созданную модель
-        # Сортируем модели по дате создания (если поле существует) в обратном порядке
+        # Сортируем модели по дате создания в обратном порядке
         try:
-            if all(isinstance(model, dict) and "created_at" in model for model in models):
-                sorted_models = sorted(models, key=lambda x: x.get("created_at", ""), reverse=True)
-            else:
-                # Если у моделей нет поля created_at, просто используем список как есть
-                sorted_models = models
+            # Фильтруем модели, оставляя только те, где status = ready
+            ready_models = [model for model in models if isinstance(model, dict) and model.get("status") == "ready"]
             
+            if not ready_models:
+                # Если нет готовых моделей, проверяем статусы других моделей
+                training_models = [model for model in models if isinstance(model, dict) and model.get("status") == "training"]
+                
+                if training_models:
+                    # Есть модели в процессе обучения
+                    message_text = "У вас пока нет готовых моделей. Дождитесь завершения обучения текущих моделей."
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("🚀 Начать с нуля", callback_data="cmd_train")],
+                        [InlineKeyboardButton("🔄 В начало", callback_data="cmd_start")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await self.edit_message(
+                        context=context,
+                        query=query,
+                        chat_id=chat_id,
+                        caption=message_text,
+                        text=message_text,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Пользователь {user_id} имеет только модели в процессе обучения")
+                    return
+                else:
+                    # Нет готовых моделей и нет обучающихся - предлагаем создать новую
+                    message_text = "У вас пока нет готовых моделей. Сначала создайте свою первую модель."
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("🚀 Начать с нуля", callback_data="cmd_train")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await self.edit_message(
+                        context=context,
+                        query=query,
+                        chat_id=chat_id,
+                        caption=message_text,
+                        text=message_text,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Пользователь {user_id} не имеет готовых моделей")
+                    return
+            
+            # Теперь работаем только с готовыми моделями
+            # Проверяем наличие ключа created_at и сортируем по нему
+            if all("created_at" in model for model in ready_models):
+                # Сортируем модели по дате создания в обратном порядке (сначала новые)
+                sorted_models = sorted(ready_models, key=lambda x: x.get("created_at", ""), reverse=True)
+                logger.info(f"Модели отсортированы по created_at: {[model.get('name', 'Unknown') for model in sorted_models]}")
+            else:
+                # Если в моделях нет поля created_at, просто используем список как есть
+                sorted_models = ready_models
+                logger.warning(f"В моделях нет поля created_at, используем исходный порядок")
+                
             # Берем самую последнюю модель
             latest_model = sorted_models[0]
             
-            # Проверяем, что latest_model - это словарь
+            # Проверяем, что latest_model - это словарь и у него есть нужные поля
             if not isinstance(latest_model, dict):
                 logger.error(f"Последняя модель неверного формата: {type(latest_model).__name__}")
                 raise ValueError("Model is not a dictionary")
                 
             model_id = latest_model.get("model_id", "unknown")
             model_name = latest_model.get("name", f"Модель #{model_id}")
+            
+            # Если model_id пустой или None, пробуем получить другую модель
+            if not model_id or model_id == "unknown" or model_id is None:
+                logger.warning(f"У последней модели {model_name} нет model_id, ищем другую модель")
+                
+                # Ищем первую модель с непустым model_id
+                for model in sorted_models:
+                    if model.get("model_id"):
+                        model_id = model.get("model_id")
+                        model_name = model.get("name", f"Модель #{model_id}")
+                        logger.info(f"Найдена альтернативная модель: {model_name} (ID: {model_id})")
+                        break
+                else:
+                    # Если все модели без model_id
+                    raise ValueError("No models with valid model_id found")
         except (IndexError, ValueError, TypeError) as e:
             logger.error(f"Ошибка при обработке моделей: {e}", exc_info=True)
             message_text = "Произошла ошибка при выборе модели. Пожалуйста, попробуйте позже."
@@ -765,16 +838,28 @@ class CallbackHandler:
         # Получаем данные из состояния пользователя
         model_id = self.state_manager.get_data(user_id, "model_id")
         prompt = self.state_manager.get_data(user_id, "prompt")
+        model_name = self.state_manager.get_data(user_id, "model_name", "Неизвестная модель")
         
         if not model_id or not prompt:
-            logger.error(f"Не удалось получить model_id или prompt для пользователя {user_id}")
+            error_message = f"Не удалось получить model_id или prompt для пользователя {user_id}"
+            logger.error(error_message)
+            
+            # Отправляем уведомление администратору
+            await self.notify_admin(context, f"Ошибка генерации: {error_message}")
             
             # Сохраняем ID сообщения для последующего редактирования
             try:
-                await query.edit_message_text(
-                    text="❌ Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью кнопки ниже.",
-                    reply_markup=create_main_keyboard()
-                )
+                # Проверяем, есть ли caption в сообщении (это медиа-сообщение)
+                if hasattr(query.message, 'caption') and query.message.caption is not None:
+                    await query.edit_message_caption(
+                        caption="❌ Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью кнопки ниже.",
+                        reply_markup=create_main_keyboard()
+                    )
+                else:
+                    await query.edit_message_text(
+                        text="❌ Ошибка: не удалось получить ID модели или промпт. Пожалуйста, начните генерацию заново с помощью кнопки ниже.",
+                        reply_markup=create_main_keyboard()
+                    )
             except Exception as e:
                 logger.error(f"Ошибка при обновлении сообщения об ошибке: {e}", exc_info=True)
             
@@ -875,6 +960,15 @@ class CallbackHandler:
                             logger.error(f"Ошибка при обновлении сообщения об ошибке: {edit_err}", exc_info=True)
         except Exception as e:
             logger.error(f"Исключение при отправке запроса на генерацию: {e}", exc_info=True)
+            
+            # Отправляем уведомление администратору
+            await self.notify_admin(
+                context, 
+                f"Критическая ошибка генерации для пользователя {user_id}:\n" +
+                f"Модель: {model_name} (ID: {model_id})\n" +
+                f"Промпт: {prompt}\n\n" +
+                f"Исключение: {str(e)}"
+            )
             
             # Создаем клавиатуру с кнопкой повтора и возврата в меню
             keyboard = [
@@ -1276,7 +1370,7 @@ class CallbackHandler:
             except Exception as send_err:
                 logger.error(f"Ошибка при отправке сообщения с отменой обучения: {send_err}", exc_info=True)
     
-    async def _handle_cmd_video(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
+    async def _handle_video_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
         """
         Обработка команды video из callback
         
@@ -1331,96 +1425,6 @@ class CallbackHandler:
                     text=message,
                     reply_markup=reply_markup
                 )
-
-    async def _handle_video_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int) -> None:
-        """
-        Обработка команды создания видео
-        
-        Args:
-            update (Update): Объект обновления Telegram
-            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
-            query: Объект callback_query
-            user_id (int): ID пользователя
-        """
-        logger.info(f"Пользователь {user_id} запросил создание видео")
-        
-        # Сбрасываем предыдущее состояние
-        self.state_manager.reset_state(user_id)
-        self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_FOR_VIDEO)
-        
-        # Получаем модели пользователя через API запрос
-        try:
-            data = {"telegram_id": user_id}
-            api_url = 'https://n8n2.supashkola.ru/webhook/my_models'
-            logger.info(f"Отправляю API запрос на получение моделей: URL={api_url}, данные={data}")
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=data) as response:
-                    response_status = response.status
-                    response_text = await response.text()
-                    response_headers = dict(response.headers)
-                    
-                    logger.info(f"Получен ответ API: статус={response_status}, заголовки={response_headers}")
-                    logger.info(f"Тело ответа API: {response_text}")
-                    
-                    if response_status == 200:
-                        models = await response.json()
-                        logger.info(f"Получены модели пользователя {user_id} через API: {len(models)} моделей")
-                    else:
-                        logger.error(f"Ошибка при получении моделей через API: статус={response_status}, ответ={response_text}")
-                        models = []
-        except Exception as e:
-            logger.error(f"Исключение при получении моделей через API: {e}", exc_info=True)
-            models = []
-        
-        if not models:
-            # Отправляем сообщение об отсутствии моделей
-            try:
-                await query.edit_message_text(
-                    text="У вас пока нет обученных моделей. Сначала создайте модель с помощью команды 'Обучить модель'.",
-                    reply_markup=create_main_keyboard()
-                )
-            except Exception as e:
-                logger.error(f"Ошибка при редактировании сообщения: {e}", exc_info=True)
-                # В случае ошибки отправляем новое сообщение
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="У вас пока нет обученных моделей. Сначала создайте модель с помощью команды 'Обучить модель'.",
-                        reply_markup=create_main_keyboard()
-                    )
-                except Exception as send_err:
-                    logger.error(f"Ошибка при отправке сообщения: {send_err}", exc_info=True)
-            return
-        
-        # Формируем клавиатуру для выбора модели
-        keyboard = []
-        for model in models:
-            model_name = model.get("name", f"Модель #{model.get('model_id', 'без ID')}")
-            model_id = model.get("model_id", "unknown")
-            keyboard.append([InlineKeyboardButton(model_name, callback_data=f"videomodel_{model_id}")])
-        
-        # Добавляем кнопку отмены
-        keyboard.append([InlineKeyboardButton("❌ Отменить", callback_data="cancel_video")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Отправляем сообщение с выбором модели
-        try:
-            await query.edit_message_text(
-                text="Выберите модель для создания видео:",
-                reply_markup=reply_markup
-            )
-            logger.info(f"Отправлен список моделей для видео пользователю {user_id}")
-        except Exception as e:
-            logger.error(f"Ошибка при редактировании сообщения: {e}", exc_info=True)
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id, 
-                    text="Выберите модель для создания видео:",
-                    reply_markup=reply_markup
-                )
-            except Exception as send_err:
-                logger.error(f"Ошибка при отправке сообщения с моделями: {send_err}", exc_info=True)
 
     async def _handle_video_model_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int, callback_data: str) -> None:
         """
@@ -1837,3 +1841,76 @@ class CallbackHandler:
         except Exception as e:
             logger.warning(f"Ошибка при редактировании сообщения: {e}")
             return False
+
+    async def _handle_use_username(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, user_id: int, callback_data: str) -> None:
+        """
+        Обрабатывает выбор имени пользователя в качестве имени модели
+        
+        Args:
+            update (Update): Объект обновления Telegram
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            query: Объект callback query
+            user_id (int): ID пользователя
+            callback_data (str): Данные callback query
+        """
+        try:
+            # Извлекаем имя пользователя из callback_data
+            username = callback_data.replace("use_username_", "")
+            
+            # Сохраняем имя модели
+            self.state_manager.set_data(user_id, "model_name", username)
+            logger.info(f"Пользователь {user_id} использовал свое имя '{username}' в качестве имени модели")
+            
+            # Устанавливаем состояние пользователя на SELECTING_MODEL_TYPE
+            self.state_manager.set_state(user_id, UserState.SELECTING_MODEL_TYPE)
+            
+            # Создаем клавиатуру для выбора типа модели
+            keyboard = [
+                [
+                    InlineKeyboardButton("Мужская", callback_data="type_male"),
+                    InlineKeyboardButton("Женская", callback_data="type_female")
+                ],
+                [InlineKeyboardButton("❌ Отменить обучение", callback_data="cancel_training")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Формируем текст сообщения
+            message_text = (
+                f"Имя модели: <b>{username}</b>\n\n"
+                "Теперь выберите тип модели:"
+            )
+            
+            await self.edit_message(
+                context=context,
+                query=query,
+                chat_id=query.message.chat_id,
+                text=message_text,
+                caption=message_text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.exception(f"Ошибка при обработке выбора имени пользователя: {e}")
+            await self._send_error_message(context, query.message.chat_id, f"Произошла ошибка: {str(e)}")
+
+    async def notify_admin(self, context: ContextTypes.DEFAULT_TYPE, message: str) -> None:
+        """
+        Отправляет уведомление администратору о критической ошибке
+        
+        Args:
+            context (ContextTypes.DEFAULT_TYPE): Контекст Telegram
+            message (str): Текст сообщения
+        """
+        if not ADMIN_TELEGRAM_ID:
+            logger.error("ADMIN_TELEGRAM_ID не задан, невозможно отправить уведомление администратору")
+            return
+            
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_TELEGRAM_ID,
+                text=f"⚠️ ОШИБКА В БОТЕ ⚠️\n\n{message}",
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Уведомление администратору отправлено")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке уведомления администратору: {e}", exc_info=True)

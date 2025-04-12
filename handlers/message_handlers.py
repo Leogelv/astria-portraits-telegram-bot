@@ -237,8 +237,9 @@ class MessageHandler:
         self.state_manager.set_data(user_id, "prompt", text)
         logger.info(f"Пользователь {user_id} ввел промпт: {text}")
         
-        # Получаем ID модели
+        # Получаем ID модели и имя модели
         model_id = self.state_manager.get_data(user_id, "model_id")
+        model_name = self.state_manager.get_data(user_id, "model_name", "Неизвестная модель")
         
         # Создаем клавиатуру с кнопками для запуска генерации
         keyboard = [
@@ -262,7 +263,12 @@ class MessageHandler:
         # Используем сперва prompt_message_id, если его нет - base_message_id
         message_id_to_edit = prompt_message_id or base_message_id
         
-        success_message = f"✅ Промпт сохранен:\n\n{text}\n\nНажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом."
+        success_message = (
+            f"✅ Промпт сохранен:\n\n"
+            f"<b>Модель:</b> {model_name} (ID: {model_id})\n\n"
+            f"<b>Промпт:</b> {text}\n\n"
+            f"Нажмите кнопку ниже, чтобы запустить генерацию изображений с этим промптом."
+        )
         
         if message_id_to_edit:
             # Редактируем существующее сообщение
